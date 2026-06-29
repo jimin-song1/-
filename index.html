@@ -2341,7 +2341,8 @@ function testGas(){
   var url=document.getElementById('gas-url').value.trim();
   if(!url){document.getElementById('gas-result').innerHTML='<span style="color:var(--dg)">URL을 입력하세요<\/span>';return;}
   document.getElementById('gas-result').textContent='테스트 중...';
-  fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'ping'})})
+  var pingParams=new URLSearchParams({action:'ping',data:'{}'});
+  fetch(url+'?'+pingParams.toString(),{method:'GET'})
     .then(function(r){return r.json();})
     .then(function(d){document.getElementById('gas-result').innerHTML=d.ok?'<span style="color:var(--ok)">✅ 연결 성공<\/span>':'<span style="color:var(--dg)">오류: '+d.error+'<\/span>';})
     .catch(function(e){document.getElementById('gas-result').innerHTML='<span style="color:var(--dg)">❌ 연결 실패: '+e.message+'<\/span>';});
