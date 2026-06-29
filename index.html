@@ -706,7 +706,8 @@ var CACHE_INVALIDATE={
   saveIPGroup:['getIPGroups'],
   deleteIPGroup:['getIPGroups'],
   saveCalNotice:['getCalNotice'],
-  saveSettings:['getSettings']
+  saveSettings:['getSettings'],
+  addChangeLog:['getChangeLogs']
 };
 function cacheGet(key){
   var c=_cache[key];
@@ -899,11 +900,13 @@ function showApp(){
       {id:'allperf',l:'📋 전체 실적',p:'pg-allperf'},
       {id:'cal',l:'📅 연차 달력',p:'pg-cal'},
       {id:'emps',l:'👥 직원 관리',p:'pg-emps'},
+      {id:'input',l:'✏️ 실적 입력',p:'pg-input'},
+      {id:'my',l:'📋 내 실적',p:'pg-my'},
       {id:'seats',l:'🗺️ 자리 배치도',p:'pg-seats'},
       {id:'ip',l:'🌐 IP 현황',p:'pg-ip'},
       {id:'settings',l:'⚙️ 설정',p:'pg-settings'}
     ]);
-    setMR('fs','fe2');
+    setMR('fs','fe2'); setMR('mys','mye'); setToday(); buildPerfTable();
     var ddEl=document.getElementById('dash-date');
     if(ddEl) ddEl.value=new Date().toISOString().slice(0,10);
     switchTab('dash');
@@ -1845,8 +1848,10 @@ function drawLineChart(ctx, canvas, dates, empNames, empData, colors){
 function loadChangeLogs(){
   var logEl=document.getElementById('dash-chglog-body');
   if(!logEl) return;
+  logEl.innerHTML=ldg();
   api('getChangeLogs',{days:7}).then(function(res){
     var logs=res.ok?res.logs:[];
+    logs=logs.slice(0,10);
     if(!logs.length){logEl.innerHTML='<div class="empty" style="padding:16px"><p>최근 7일 변경 내역 없음<\/p><\/div>';return;}
     var h='<div class="tw"><table class="dt"><thead><tr><th>수정일시<\/th><th>수정자<\/th><th>수정내용<\/th><\/tr><\/thead><tbody>';
     logs.forEach(function(l){
@@ -2371,8 +2376,17 @@ function openEditIPG(id){
   });
 }
 function fillIPGUsers(){
+  var RANK_ORDER=['사원','주임','대리','과장','차장','부장','이사','설장','팀장','임원'];
   return api('getAllUsers',{}).then(function(r){
-    _ipgUsers=r.ok?r.employees.filter(function(u){return u.role!=='admin';}):[];
+    _ipgUsers=r.ok?r.employees:[];
+    // 직급 오름차순 정렬
+    _ipgUsers.sort(function(a,b){
+      var ai=RANK_ORDER.indexOf(a.rank||'');
+      var bi=RANK_ORDER.indexOf(b.rank||'');
+      if(ai===-1) ai=999; if(bi===-1) bi=999;
+      if(ai!==bi) return ai-bi;
+      return (a.name||'').localeCompare(b.name||'');
+    });
   });
 }
 function addIPRow(en){
