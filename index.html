@@ -193,7 +193,7 @@ table.pt td.otc{background:#FFF8F8;}
     <div class="fg"><label>아이디</label><input type="text" id="lid" placeholder="아이디" autocomplete="username"></div>
     <div class="fg"><label>비밀번호 <span style="color:var(--tm);font-size:11px">(없으면 비워두세요)</span></label><input type="password" id="lpw" placeholder="비밀번호" autocomplete="current-password"></div>
     <button class="btn btn-pr btn-fu" id="lbtn">로그인</button>
-    <div class="hint"><strong>데모 계정</strong><br>관리자: <code>admin</code> / <code>admin1234</code><br>직원A: <code>empA</code> &nbsp; 직원B: <code>empB</code> &nbsp; 직원C: <code>empC</code><br><span style="font-size:11px;color:var(--tm)">(직원은 비밀번호 없음)</span></div>
+
   </div>
 </div>
 
@@ -673,7 +673,7 @@ var D_SEATS = JSON.parse(localStorage.getItem('seats_v2')||'null') || {
 var D_CHGLOG = [];
 
 // ── 데모 데이터 ───────────────────────────────
-var GAS_URL=localStorage.getItem('gas_url')||'';
+var GAS_URL=localStorage.getItem('gas_url')||'https://script.google.com/macros/s/AKfycbysvLbTSHBYa0dgf1sWJ53izVRc0pxlmaA6DZg0CJbGACpS3mEJhWK_fOy2rLTKcxwBAQ/exec';
 var CU=null;
 var DU=[
   {id:'admin',name:'관리자1',pw:'admin1234',role:'admin',color:'#534AB7',hire:'',phone:'',team:'경영지원',rank:'팀장',duty:'',cid1:'',cpw1:'',idms1:'',cid2:'',cpw2:'',idms2:'',bph:'',doc:'',s1:'',pcpw:'',pcpwDate:''},
@@ -2000,8 +2000,7 @@ function loadEmps(){
       var el=document.getElementById('emp-section-'+k);
       if(el) el.innerHTML=ldg();
     });
-    api('getPerfs',{ym:ym}).then(function(pr){
-      var allPerfs=pr.ok?pr.perfs:[];
+    api('getPerfs',{ym:ym}).then(function(pr){      var allPerfs=pr.ok?pr.perfs:[];
       var monthPerfs=allPerfs.filter(function(p){return p.date.indexOf(ym)===0;});
       var today=new Date().toISOString().slice(0,10);
       var endOfMonth=ym+'-'+new Date(parseInt(ym.slice(0,4)),parseInt(ym.slice(5,7)),0).getDate().toString().padStart(2,'0');
@@ -2250,23 +2249,20 @@ function renderIPG(g, empMap, isA){
   }
   card.appendChild(hd);
 
-  // ── 네트워크 정보 박스 (이미지 상단 표처럼)
-  if(g.subnet||g.gateway||g.dns){
-    var netBox=document.createElement('div');
-    netBox.style.cssText='background:var(--bg);border:1px solid var(--b);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12px;align-items:center';
-    var rows2=[
-      ['IP 범위', (g.prefix||'')+'<strong style="color:var(--dg)">'+(g.range||'-')+'<\/strong>'],
-      ['서브넷 마스크', g.subnet||'-'],
-      ['기본 게이트웨이', '<span style="color:var(--dg);font-weight:600">'+(g.gateway||'-')+'<\/span>'],
-      ['DNS', g.dns||'-'],
-      ['보조 DNS', g.dns2||'-']
-    ];
-    rows2.forEach(function(r){
-      if(!r[1]||r[1]==='-') return;
-      netBox.innerHTML+='<span style="color:var(--tm);white-space:nowrap">'+r[0]+'<\/span><span style="font-family:monospace">'+r[1]+'<\/span>';
-    });
-    card.appendChild(netBox);
-  }
+  // ── 네트워크 정보 박스
+  var netBox=document.createElement('div');
+  netBox.style.cssText='background:var(--bg);border:1px solid var(--b);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12px;align-items:center';
+  var rows2=[
+    ['IP 범위', (g.prefix||'')+'<strong style="color:var(--dg)">'+(g.range||'-')+'<\/strong>'],
+    ['서브넷 마스크', g.subnet||'-'],
+    ['기본 게이트웨이', '<span style="color:var(--dg);font-weight:600">'+(g.gateway||'-')+'<\/span>'],
+    ['DNS', g.dns||'-'],
+    ['보조 DNS', g.dns2||'-']
+  ];
+  rows2.forEach(function(r){
+    netBox.innerHTML+='<span style="color:var(--tm);white-space:nowrap">'+r[0]+'<\/span><span style="font-family:monospace">'+r[1]+'<\/span>';
+  });
+  card.appendChild(netBox);
 
   // ── IP 목록 테이블
   var tbl=document.createElement('table');
