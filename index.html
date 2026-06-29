@@ -1331,23 +1331,35 @@ function closeCPop(){document.getElementById('cpop').classList.remove('open');}
 function getPopTarget(){
   var isAdmin=CU.role==='admin';
   var empSel=document.getElementById('cpop-emp-sel');
-  if(isAdmin&&empSel&&empSel.value){
-    var name=empSel.options[empSel.selectedIndex]?empSel.options[empSel.selectedIndex].textContent.replace(' (나)',''):'';
+  if(isAdmin&&empSel&&empSel.value&&empSel.style.display!=='none'&&document.getElementById('cpop-emp-wrap').style.display!=='none'){
+    var opt=empSel.options[empSel.selectedIndex];
+    var name=opt?opt.textContent.replace(' (나)','').trim():'';
     return {id:empSel.value,name:name};
   }
   return {id:CU.id,name:CU.name};
 }
 function saveAnnual(type){
+  if(!popDate){alert('날짜를 다시 선택해주세요.');return;}
   var t=getPopTarget();
+  if(!t.id){alert('직원을 선택해주세요.');return;}
   api('saveAnnual',{a:{empId:t.id,empName:t.name,date:popDate,type:type}}).then(function(res){
-    if(res.ok){closeCPop();loadCal();}else alert(res.error||'저장 실패');
+    if(res.ok){
+      // cAn 즉시 업데이트
+      cAn=cAn.filter(function(a){return !(a.empId===t.id&&a.date===popDate);});
+      cAn.push({empId:t.id,empName:t.name,date:popDate,type:type});
+      closeCPop();renderCal();loadCal();
+    }else alert(res.error||'저장 실패');
   });
 }
 function deleteAnnual(){
   if(!confirm('연차를 삭제하시겠습니까?')) return;
+  if(!popDate) return;
   var t=getPopTarget();
   api('saveAnnual',{a:{empId:t.id,empName:t.name,date:popDate,type:''}}).then(function(res){
-    if(res.ok){closeCPop();loadCal();}
+    if(res.ok){
+      cAn=cAn.filter(function(a){return !(a.empId===t.id&&a.date===popDate);});
+      closeCPop();renderCal();loadCal();
+    }else alert(res.error||'삭제 실패');
   });
 }
 
