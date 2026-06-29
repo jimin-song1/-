@@ -691,18 +691,59 @@ var DIG=[
 ];
 var _pid=1,_iid=5;
 
+// ── 캐시 ─────────────────────────────────────
+var _cache={};
+var CACHE_TTL=60000; // 60초
+// 캐시 대상 액션 (읽기 전용 + 자주 안 바뀌는 것)
+var CACHEABLE=['getAllUsers','getEmployees','getSeats','getIPGroups','getCalNotice','getSettings'];
+// 액션 실행 시 무효화할 캐시 키 맵
+var CACHE_INVALIDATE={
+  addEmployee:['getAllUsers','getEmployees'],
+  deleteEmployee:['getAllUsers','getEmployees'],
+  updateEmpAdmin:['getAllUsers','getEmployees'],
+  updateEmpSelf:['getAllUsers','getEmployees'],
+  saveAllSeats:['getSeats'],
+  saveIPGroup:['getIPGroups'],
+  deleteIPGroup:['getIPGroups'],
+  saveCalNotice:['getCalNotice'],
+  saveSettings:['getSettings']
+};
+function cacheGet(key){
+  var c=_cache[key];
+  if(!c) return null;
+  if(Date.now()-c.ts>CACHE_TTL){delete _cache[key];return null;}
+  return c.data;
+}
+function cacheSet(key,data){_cache[key]={data:data,ts:Date.now()};}
+function cacheInvalidate(action){
+  var keys=CACHE_INVALIDATE[action]||[];
+  keys.forEach(function(k){delete _cache[k];});
+}
+
 // ── API ──────────────────────────────────────
 function api(action, data){
   if(!GAS_URL) return Promise.resolve(demo(action, data));
-  // GAS는 GET + URLSearchParams 방식으로 호출 (CORS 우회)
-  var payload = Object.assign({ action: action }, data || {});
-  var params = new URLSearchParams({
-    action: action,
-    data: JSON.stringify(data || {})
-  });
-  return fetch(GAS_URL + '?' + params.toString(), { method: 'GET' })
-    .then(function(r){ return r.json(); })
-    .catch(function(e){ return { ok: false, error: 'GAS 연결 실패: ' + e.message }; });
+
+  // 쓰기 액션이면 관련 캐시 무효화
+  cacheInvalidate(action);
+
+  // 캐시 가능한 액션이면 캐시 먼저 확인
+  if(CACHEABLE.indexOf(action)!==-1){
+    var cacheKey=action+':'+JSON.stringify(data||{});
+    var cached=cacheGet(cacheKey);
+    if(cached) return Promise.resolve(cached);
+    var params=new URLSearchParams({action:action,data:JSON.stringify(data||{})});
+    return fetch(GAS_URL+'?'+params.toString(),{method:'GET'})
+      .then(function(r){return r.json();})
+      .then(function(res){if(res.ok) cacheSet(cacheKey,res);return res;})
+      .catch(function(e){return{ok:false,error:'GAS 연결 실패: '+e.message};});
+  }
+
+  // 일반 액션
+  var params=new URLSearchParams({action:action,data:JSON.stringify(data||{})});
+  return fetch(GAS_URL+'?'+params.toString(),{method:'GET'})
+    .then(function(r){return r.json();})
+    .catch(function(e){return{ok:false,error:'GAS 연결 실패: '+e.message};});
 }
 
 function demo(action,data){
@@ -896,7 +937,24 @@ function renderTabs(tabs){
   });
 }
 
+var _perfDirty=false; // 실적 입력 중 여부
+
+function isPerfDirty(){
+  // 숫자 입력값이 하나라도 있으면 dirty
+  var inputs=[].slice.call(document.querySelectorAll('.ni'));
+  for(var i=0;i<inputs.length;i++){if(parseInt(inputs[i].value||'0')>0) return true;}
+  // 기타업무 체크박스
+  var cks=[].slice.call(document.querySelectorAll('#pg-input input[type="checkbox"]:checked'));
+  if(cks.length>0) return true;
+  return false;
+}
+
 function switchTab(id){
+  // 실적 입력 탭에서 다른 탭으로 이동 시 입력 중이면 확인
+  var curActive=_tabs.find(function(t){return document.getElementById(t.p)&&document.getElementById(t.p).classList.contains('active');});
+  if(curActive&&curActive.id==='input'&&id!=='input'&&isPerfDirty()){
+    if(!confirm('입력 중인 실적이 있습니다.\n저장하지 않고 이동하시겠습니까?')) return;
+  }
   _tabs.forEach(function(t){
     var tb=document.getElementById('tb-'+t.id);
     var pg=document.getElementById(t.p);
@@ -912,6 +970,14 @@ function switchTab(id){
   if(id==='ip') loadIPs();
   if(id==='myinfo') loadMyInfo();
 }
+
+// 창 닫거나 새로고침 시 입력 중이면 경고
+window.addEventListener('beforeunload',function(e){
+  if(document.getElementById('pg-input')&&document.getElementById('pg-input').classList.contains('active')&&isPerfDirty()){
+    e.preventDefault();
+    e.returnValue='';
+  }
+});
 
 // ── 실적 입력 ─────────────────────────────────
 function buildPerfTable(){
@@ -2439,7 +2505,7 @@ document.addEventListener('DOMContentLoaded',function(){
   // 자리 배치 저장
   var seatsSave=document.getElementById('seats-save-btn');
   if(seatsSave) seatsSave.addEventListener('click',saveAllSeats);
-  document.querySelectorAll('.mbg').forEach(function(bg){bg.addEventListener('click',function(e){if(e.target===bg)bg.classList.remove('open');});});
+  // 모달 배경 클릭해도 닫히지 않음 (저장/취소 버튼으로만 닫힘)
   setMR('mys','mye'); setMR('fs','fe2');
   var s=sessionStorage.getItem('cu');
   if(s){try{CU=JSON.parse(s);showApp();}catch(err){sessionStorage.removeItem('cu');}}
