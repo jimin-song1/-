@@ -448,14 +448,13 @@ table.pt td.otc{background:#FFF8F8;}
             <div style="display:flex;flex-direction:column;gap:6px">
               <div id="s1-L1" class="seat-card" data-sid="s1-L1"></div>
               <div id="s1-L2" class="seat-card" data-sid="s1-L2"></div>
-              <div id="s1-L3" class="seat-card" data-sid="s1-L3"></div>
-              <!-- L4 + 전산프린터 나란히 -->
+              <!-- L3 + 전산프린터 나란히 (구 L4) -->
               <div style="display:flex;gap:6px;align-items:stretch">
-                <div id="s1-L4" class="seat-card" data-sid="s1-L4" style="flex:1"></div>
+                <div id="s1-L3" class="seat-card" data-sid="s1-L3" style="flex:1"></div>
                 <div style="background:#F3F4F6;border:1.5px solid #9CA3AF;border-radius:8px;padding:6px 4px;text-align:center;font-size:10px;font-weight:600;color:#4B5563;min-width:46px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">🖥️<br><span style="font-size:9px">전산<br>프린터</span></div>
               </div>
               <div style="background:#FEF3C7;border:1.5px solid #FCD34D;border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:600;color:#92400E">🖨️ 프린터</div>
-              <div id="s1-L5" class="seat-card" data-sid="s1-L5"></div>
+              <div id="s1-L4" class="seat-card" data-sid="s1-L4"></div>
             </div>
             <!-- 우측 -->
             <div style="display:flex;flex-direction:column;gap:6px">
@@ -662,7 +661,6 @@ var D_SEATS = JSON.parse(localStorage.getItem('seats_v2')||'null') || {
   's1-L2':{label:'1층 좌②',empId:''},
   's1-L3':{label:'1층 좌③',empId:''},
   's1-L4':{label:'1층 좌④',empId:''},
-  's1-L5':{label:'1층 좌⑤',empId:''},
   's1-R1':{label:'1층 우①',empId:''},
   's1-R2':{label:'1층 우②',empId:''},
   's1-R3':{label:'1층 우③',empId:''},
@@ -1884,68 +1882,91 @@ function adminDelPerf(empId,date,name){
 
 // ── 직원 관리 ─────────────────────────────────
 function loadEmps(){
-  // 월 선택값 초기화
   var monthEl=document.getElementById('emps-month');
   if(monthEl&&!monthEl.value) monthEl.value=new Date().toISOString().slice(0,7);
   var ym=monthEl?monthEl.value:new Date().toISOString().slice(0,7);
 
-  // 모든 섹션 로딩 표시
   ['admin','S','A','B','C','D','nodata'].forEach(function(k){
     var el=document.getElementById('emp-section-'+k);
     if(el) el.innerHTML='';
   });
   document.getElementById('emp-section-admin').innerHTML=ldg();
 
-  Promise.all([
-    api('getAllUsers',{}),
-    api('getPerfs',{})
-  ]).then(function(rs){
-    if(!rs[0].ok){
-      document.getElementById('emp-section-admin').innerHTML=alHtml(rs[0].error,'er');
-      return;
+  // 관리자: 먼저 고정 렌더링 (달 조회 무관)
+  api('getAllUsers',{}).then(function(r){
+    if(!r.ok){document.getElementById('emp-section-admin').innerHTML=alHtml(r.error,'er');return;}
+    var allEmps=r.employees;
+    var admins=allEmps.filter(function(e){return e.role==='admin';});
+    var normalEmps=allEmps.filter(function(e){return e.role!=='admin';});
+
+    // 관리자 섹션 즉시 고정 렌더링
+    var adminEl=document.getElementById('emp-section-admin');
+    adminEl.innerHTML='';
+    if(admins.length){
+      var hdr=document.createElement('div');
+      hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--ppl);border-radius:8px;border-left:4px solid var(--pp)';
+      hdr.innerHTML='<span style="font-size:13px;font-weight:700;color:var(--pp)">👑 관리자<\/span><span style="font-size:12px;color:var(--pp);opacity:.7">'+admins.length+'명<\/span><span style="font-size:11px;color:var(--tm);margin-left:auto">달 조회 무관 고정<\/span>';
+      adminEl.appendChild(hdr);
+      var grid=document.createElement('div');
+      grid.className='emp-grid'; grid.style.marginBottom='18px';
+      admins.forEach(function(e){
+        var card=document.createElement('div');
+        card.className='card'; card.style.cursor='pointer';
+        card.innerHTML=
+          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">'+
+            '<div style="width:42px;height:42px;border-radius:50%;background:'+(e.color||'#534AB7')+';display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;flex-shrink:0">'+e.name[0]+'<\/div>'+
+            '<div style="flex:1;min-width:0">'+
+              '<div style="font-size:14px;font-weight:600">'+e.name+'<span class="bdg b-p" style="margin-left:6px">관리자<\/span><\/div>'+
+              '<div style="font-size:12px;color:var(--tm)"><code>'+e.id+'<\/code> · '+(e.rank||'-')+' · '+(e.team||'-')+'<\/div>'+
+            '<\/div>'+
+          '<\/div>'+
+          '<div style="font-size:12px;color:var(--ts);display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">'+
+            '<span>📅 '+(e.hire||'-')+'<\/span><span>📱 '+(e.phone||'-')+'<\/span>'+
+          '<\/div>';
+        card.addEventListener('click',function(){openEmpD(e.id);});
+        grid.appendChild(card);
+      });
+      adminEl.appendChild(grid);
     }
-    var emps=rs[0].employees;
-    var allPerfs=rs[1].ok?rs[1].perfs:[];
 
-    // 당월 실적만 필터
-    var monthPerfs=allPerfs.filter(function(p){return p.date.indexOf(ym)===0;});
-    // 영업일 수 계산 (오늘 또는 월말까지)
-    var today=new Date().toISOString().slice(0,10);
-    var endOfMonth=ym+'-'+new Date(parseInt(ym.slice(0,4)),parseInt(ym.slice(5,7)),0).getDate().toString().padStart(2,'0');
-    var endDate=endOfMonth<today?endOfMonth:today;
-    var biz=countBizDays(ym,endDate)||1;
-
-    // 직원별 월 누적 환산점수
-    var scoreMap={};
-    monthPerfs.forEach(function(p){
-      scoreMap[p.empId]=(scoreMap[p.empId]||0)+calcTW(p.rows);
+    // 일반 직원: 선택한 달 실적 기준 등급별 렌더링
+    ['S','A','B','C','D','nodata'].forEach(function(k){
+      var el=document.getElementById('emp-section-'+k);
+      if(el) el.innerHTML=ldg();
     });
+    api('getPerfs',{ym:ym}).then(function(pr){
+      var allPerfs=pr.ok?pr.perfs:[];
+      var monthPerfs=allPerfs.filter(function(p){return p.date.indexOf(ym)===0;});
+      var today=new Date().toISOString().slice(0,10);
+      var endOfMonth=ym+'-'+new Date(parseInt(ym.slice(0,4)),parseInt(ym.slice(5,7)),0).getDate().toString().padStart(2,'0');
+      var endDate=endOfMonth<today?endOfMonth:today;
+      var biz=countBizDays(ym,endDate)||1;
 
-    // 등급별 분류
-    var groups={admin:[],S:[],A:[],B:[],C:[],D:[],nodata:[]};
-    emps.forEach(function(e){
-      if(e.role==='admin'){groups.admin.push({e:e,pt:null,gr:null});return;}
-      var pt=scoreMap[e.id]||0;
-      var hasData=scoreMap[e.id]!==undefined;
-      if(!hasData){groups.nodata.push({e:e,pt:0,gr:null});return;}
-      var gr=getMonthGrade(pt,biz);
-      groups[gr.g].push({e:e,pt:pt,gr:gr});
-    });
-    // 각 그룹 내 점수 내림차순 정렬
-    ['S','A','B','C','D'].forEach(function(g){
-      groups[g].sort(function(a,b){return b.pt-a.pt;});
-    });
+      var scoreMap={};
+      monthPerfs.forEach(function(p){
+        scoreMap[p.empId]=(scoreMap[p.empId]||0)+calcTW(p.rows);
+      });
 
-    // 섹션 헤더 정의
-    var sectionDefs=[
-      {key:'admin', label:'👑 관리자', color:'var(--pp)', bg:'var(--ppl)'},
-      {key:'S',     label:'🏆 S 등급', color:'#534AB7',  bg:'#EEEDFE'},
-      {key:'A',     label:'🥇 A 등급', color:'#1D9E75',  bg:'#E1F5EE'},
-      {key:'B',     label:'🥈 B 등급', color:'#3B6FE8',  bg:'#EEF3FD'},
-      {key:'C',     label:'🥉 C 등급', color:'#BA7517',  bg:'#FAEEDA'},
-      {key:'D',     label:'📉 D 등급', color:'#A32D2D',  bg:'#FCEBEB'},
-      {key:'nodata',label:'📋 실적 없음', color:'var(--tm)', bg:'var(--bg)'}
-    ];
+      var groups={S:[],A:[],B:[],C:[],D:[],nodata:[]};
+      normalEmps.forEach(function(e){
+        var pt=scoreMap[e.id]||0;
+        var hasData=scoreMap[e.id]!==undefined;
+        if(!hasData){groups.nodata.push({e:e,pt:0,gr:null});return;}
+        var gr=getMonthGrade(pt,biz);
+        groups[gr.g].push({e:e,pt:pt,gr:gr});
+      });
+      ['S','A','B','C','D'].forEach(function(g){
+        groups[g].sort(function(a,b){return b.pt-a.pt;});
+      });
+
+      var sectionDefs=[
+        {key:'S',     label:'🏆 S 등급', color:'#534AB7',  bg:'#EEEDFE'},
+        {key:'A',     label:'🥇 A 등급', color:'#1D9E75',  bg:'#E1F5EE'},
+        {key:'B',     label:'🥈 B 등급', color:'#3B6FE8',  bg:'#EEF3FD'},
+        {key:'C',     label:'🥉 C 등급', color:'#BA7517',  bg:'#FAEEDA'},
+        {key:'D',     label:'📉 D 등급', color:'#A32D2D',  bg:'#FCEBEB'},
+        {key:'nodata',label:'📋 실적 없음', color:'var(--tm)', bg:'var(--bg)'}
+      ];
 
     sectionDefs.forEach(function(sec){
       var list=groups[sec.key];
@@ -2014,10 +2035,7 @@ function loadEmps(){
       el.appendChild(grid);
     });
 
-    // 모든 섹션이 비면 로딩 제거
-    document.getElementById('emp-section-admin').querySelector&&
-      document.getElementById('emp-section-admin').querySelector('.ldg')&&
-      (document.getElementById('emp-section-admin').innerHTML='');
+    });
   });
 }
 
