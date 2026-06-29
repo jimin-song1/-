@@ -909,7 +909,9 @@ function showApp(){
     setMR('fs','fe2'); setMR('mys','mye'); setToday(); buildPerfTable();
     var ddEl=document.getElementById('dash-date');
     if(ddEl) ddEl.value=new Date().toISOString().slice(0,10);
-    switchTab('dash');
+    var lastTab=sessionStorage.getItem('lastTab')||'dash';
+    var validTabs=['dash','allperf','cal','emps','input','my','seats','ip','settings'];
+    switchTab(validTabs.indexOf(lastTab)!==-1?lastTab:'dash');
   } else {
     rbg.textContent='직원'; rbg.className='rbg rb-e';
     renderTabs([
@@ -921,7 +923,10 @@ function showApp(){
       {id:'ip',l:'🌐 IP 현황',p:'pg-ip'}
     ]);
     // 설정 탭은 직원에게 숨김
-    setMR('mys','mye'); setToday(); buildPerfTable(); switchTab('input');
+    setMR('mys','mye'); setToday(); buildPerfTable();
+    var lastTab=sessionStorage.getItem('lastTab')||'input';
+    var validTabs=['input','my','cal','seats','myinfo','ip'];
+    switchTab(validTabs.indexOf(lastTab)!==-1?lastTab:'input');
   }
 }
 
@@ -958,6 +963,7 @@ function switchTab(id){
   if(curActive&&curActive.id==='input'&&id!=='input'&&isPerfDirty()){
     if(!confirm('입력 중인 실적이 있습니다.\n저장하지 않고 이동하시겠습니까?')) return;
   }
+  sessionStorage.setItem('lastTab', id);
   _tabs.forEach(function(t){
     var tb=document.getElementById('tb-'+t.id);
     var pg=document.getElementById(t.p);
