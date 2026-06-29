@@ -498,6 +498,9 @@ table.pt td.otc{background:#FFF8F8;}
 <!-- 달력 팝오버 -->
 <div class="cpop" id="cpop">
   <h4 id="cpop-lbl">날짜 선택</h4>
+  <div id="cpop-emp-wrap" style="display:none;margin-bottom:8px">
+    <select id="cpop-emp-sel" style="width:100%;padding:6px 8px;border:1.5px solid var(--b);border-radius:6px;font-size:13px;font-family:inherit;outline:none;background:var(--s)"></select>
+  </div>
   <div id="cpop-types"></div>
   <div style="margin-top:10px;display:flex;gap:6px">
     <button class="btn btn-dg btn-xs" id="cpop-del" style="display:none">삭제</button>
@@ -1264,9 +1267,55 @@ function makeDayEl(ds,dayNum,other){
 function openCPop(date,e){
   e.stopPropagation(); popDate=date;
   var pop=document.getElementById('cpop');
-  var exist=cAn.find(function(a){return a.empId===CU.id&&a.date===date;});
-  document.getElementById('cpop-lbl').textContent=date+' - '+CU.name;
-  document.getElementById('cpop-del').style.display=exist?'inline-flex':'none';
+  var isAdmin=CU.role==='admin';
+  var empWrap=document.getElementById('cpop-emp-wrap');
+  var empSel=document.getElementById('cpop-emp-sel');
+
+  // 관리자면 직원 선택 드롭박스 표시
+  if(isAdmin){
+    empWrap.style.display='block';
+    empSel.innerHTML='<option value="'+CU.id+'">'+CU.name+' (나)</option>';
+    (cAn.reduce(function(arr,a){
+      if(!arr.find(function(x){return x.empId===a.empId;})) arr.push(a);
+      return arr;
+    },[]).concat(
+      // 전체 직원 목록에서 이미 있는 사람 제외하고 추가
+      (_seatUsers||[]).filter(function(u){return !cAn.find(function(a){return a.empId===u.id;})&&u.id!==CU.id;}).map(function(u){return {empId:u.id,empName:u.name};})
+    ));
+    // 전체 직원으로 채우기
+    api('getAllUsers',{}).then(function(r){
+      if(!r.ok) return;
+      empSel.innerHTML='';
+      r.employees.forEach(function(u){
+        var opt=document.createElement('option');
+        opt.value=u.id; opt.textContent=u.name+(u.id===CU.id?' (나)':'');
+        empSel.appendChild(opt);
+      });
+      refreshCPopState(date);
+    });
+  } else {
+    empWrap.style.display='none';
+    refreshCPopState(date);
+  }
+
+  var margin=8,x=e.clientX+margin,y=e.clientY+margin;
+  if(x+240>window.innerWidth) x=e.clientX-240-margin;
+  if(y+300>window.innerHeight) y=e.clientY-300-margin;
+  pop.style.left=x+'px'; pop.style.top=y+'px';
+  pop.classList.add('open');
+
+  // 관리자가 직원 바꾸면 연차 상태 갱신
+  empSel.onchange=function(){refreshCPopState(date);};
+}
+
+function refreshCPopState(date){
+  var isAdmin=CU.role==='admin';
+  var empSel=document.getElementById('cpop-emp-sel');
+  var targetId=isAdmin?empSel.value:CU.id;
+  var targetName=isAdmin?(empSel.options[empSel.selectedIndex]&&empSel.options[empSel.selectedIndex].textContent.replace(' (나)','')):CU.name;
+  document.getElementById('cpop-lbl').textContent=date+' - '+targetName;
+  var exist=cAn.find(function(a){return a.empId===targetId&&a.date===date;});
+  document.getElementById('cpop-del').style.display=(exist&&(isAdmin||targetId===CU.id))?'inline-flex':'none';
   var tc=document.getElementById('cpop-types');
   tc.innerHTML='';
   ATYPES.forEach(function(t){
@@ -1276,22 +1325,28 @@ function openCPop(date,e){
     btn.addEventListener('click',function(){saveAnnual(t.k);});
     tc.appendChild(btn);
   });
-  var margin=8,x=e.clientX+margin,y=e.clientY+margin;
-  if(x+240>window.innerWidth) x=e.clientX-240-margin;
-  if(y+300>window.innerHeight) y=e.clientY-300-margin;
-  pop.style.left=x+'px'; pop.style.top=y+'px';
-  pop.classList.add('open');
 }
 
 function closeCPop(){document.getElementById('cpop').classList.remove('open');}
+function getPopTarget(){
+  var isAdmin=CU.role==='admin';
+  var empSel=document.getElementById('cpop-emp-sel');
+  if(isAdmin&&empSel&&empSel.value){
+    var name=empSel.options[empSel.selectedIndex]?empSel.options[empSel.selectedIndex].textContent.replace(' (나)',''):'';
+    return {id:empSel.value,name:name};
+  }
+  return {id:CU.id,name:CU.name};
+}
 function saveAnnual(type){
-  api('saveAnnual',{a:{empId:CU.id,empName:CU.name,date:popDate,type:type}}).then(function(res){
+  var t=getPopTarget();
+  api('saveAnnual',{a:{empId:t.id,empName:t.name,date:popDate,type:type}}).then(function(res){
     if(res.ok){closeCPop();loadCal();}else alert(res.error||'저장 실패');
   });
 }
 function deleteAnnual(){
   if(!confirm('연차를 삭제하시겠습니까?')) return;
-  api('saveAnnual',{a:{empId:CU.id,date:popDate,type:''}}).then(function(res){
+  var t=getPopTarget();
+  api('saveAnnual',{a:{empId:t.id,empName:t.name,date:popDate,type:''}}).then(function(res){
     if(res.ok){closeCPop();loadCal();}
   });
 }
@@ -2477,7 +2532,10 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('cal-next').addEventListener('click',function(){moveCal(1);});
   document.getElementById('cpop-close').addEventListener('click',closeCPop);
   document.getElementById('cpop-del').addEventListener('click',deleteAnnual);
-  document.addEventListener('click',function(e){if(!document.getElementById('cpop').contains(e.target))closeCPop();});
+  document.addEventListener('click',function(e){
+    var pop=document.getElementById('cpop');
+    if(pop.classList.contains('open')&&!pop.contains(e.target)) closeCPop();
+  });
   document.getElementById('myinfo-edit-btn').addEventListener('click',openMyInfoEdit);
   document.getElementById('myinfo-cancel').addEventListener('click',function(){closeM('m-myinfo');});
   document.getElementById('myinfo-ok').addEventListener('click',saveMyInfo);
