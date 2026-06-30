@@ -369,20 +369,11 @@ table.pt td.otc{background:#FFF8F8;}
     </div>
     <!-- 전체 실적 -->
     <div class="pg" id="pg-allperf">
-      <!-- 환산 계산식 안내 -->
+      <!-- 환산 계산식 안내 (설정 탭의 가중치를 그대로 반영, 동적 생성) -->
       <div class="card" style="background:#F0F4FF;border:1.5px solid #B5D4F4;margin-bottom:14px">
         <div class="cttl" style="color:var(--ad);margin-bottom:10px">📊 환산점수 계산 기준</div>
-        <div style="font-size:13px;color:var(--ts);line-height:1.9">
-          <strong style="color:var(--tp)">기준: 인+티(+추티) 1개 = 15분 = 1점</strong><br>
-          인+티(+추티) 1개 = <b>1.00pt</b> &nbsp;|&nbsp; 무선 1개 = <b>1.00pt</b> &nbsp;|&nbsp;
-          기가아이즈 1개 = <b>0.67pt</b> &nbsp;|&nbsp; 전화/단독 1개 = <b>0.33pt</b><br>
-          약갱 1개 = <b>0.33pt</b> &nbsp;|&nbsp; 상품권 1개 = <b>0.27pt</b> &nbsp;|&nbsp;
-          선약 1개 = <b>0.20pt</b><br>
-          <span style="color:var(--wn)">⚡ 기타업무: 해당 시간대 접수 환산합계가 4pt 미만이면 (4 - 접수환산)pt 추가</span>
-        </div>
-        <div style="font-size:12px;color:var(--tm);margin-top:8px">
-          예) 인+티 2개(2pt) + 기타업무 체크 → 4-2=2pt 추가 → 총 4pt
-        </div>
+        <div id="allperf-formula-body" style="font-size:13px;color:var(--ts);line-height:1.9"></div>
+        <div style="font-size:12px;color:var(--tm);margin-top:8px" id="allperf-formula-ex"></div>
       </div>
       <div class="card">
         <div class="chd">
@@ -492,20 +483,6 @@ table.pt td.otc{background:#FFF8F8;}
     </div>
     <!-- 설정 -->
     <div class="pg" id="pg-settings">
-      <div class="card" style="background:var(--al);border:1.5px dashed var(--ac)">
-        <div style="font-size:14px;font-weight:600;color:var(--ad);margin-bottom:6px">⚙️ Google Apps Script 연동</div>
-        <p style="font-size:13px;color:#185FA5;line-height:1.7">URL 입력 시 Google Sheets에 저장됩니다. 미설정 시 데모 모드.</p>
-        <div class="fg" style="margin-top:12px;margin-bottom:0"><label>Apps Script 웹 앱 URL</label><input type="url" id="gas-url" placeholder="https://script.google.com/macros/s/..."></div>
-        <div style="margin-top:8px;display:flex;gap:8px"><button class="btn btn-pr btn-sm" id="gas-sv-btn">저장</button><button class="btn btn-se btn-sm" id="gas-test-btn">연결 테스트</button></div>
-        <div id="gas-result" style="margin-top:8px;font-size:13px"></div>
-      </div>
-      <div class="card" style="margin-top:0">
-        <div class="cttl" style="margin-bottom:12px">Apps Script 코드</div>
-        <p style="font-size:13px;color:var(--ts);margin-bottom:10px">이 코드를 복사해서 Apps Script 편집기에 붙여넣으세요.</p>
-        <div style="background:var(--bg);border-radius:8px;padding:12px;overflow-x:auto;max-height:360px;overflow-y:auto">
-          <pre id="gas-code" style="font-size:11px;font-family:monospace;color:var(--tp);white-space:pre;line-height:1.6"></pre>
-        </div>
-      </div>
       <div class="card" style="margin-top:0">
         <div class="cttl" style="margin-bottom:4px">📊 환산점수 가중치 (관리자 전용)</div>
         <p style="font-size:13px;color:var(--ts);margin-bottom:12px">전체 실적/대시보드/순위에 쓰이는 환산점수 계산 가중치입니다. 변경 시 즉시 전체 사용자에게 반영됩니다.</p>
@@ -960,8 +937,6 @@ function showApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('uname').textContent=CU.name;
-  var gu=document.getElementById('gas-url'); if(gu) gu.value=GAS_URL;
-  var gc=document.getElementById('gas-code'); if(gc) gc.textContent=GAS_SCRIPT;
   var rbg=document.getElementById('rbg');
   if(CU.role==='admin'){
     rbg.textContent='관리자'; rbg.className='rbg rb-a';
@@ -1050,7 +1025,7 @@ function switchTab(id){
   if(id==='my') loadMyPerf();
   if(id==='cal'){initCal();loadCal();loadCalNotice();}
   if(id==='dash') loadDash(document.getElementById('dash-date').value||new Date().toISOString().slice(0,10));
-  if(id==='allperf'){loadAllPerf();loadEmpFilter();}
+  if(id==='allperf'){loadAllPerf();loadEmpFilter();renderAllPerfFormula();}
   if(id==='emps') loadEmps();
   if(id==='seats') loadSeats();
   if(id==='ip') loadIPs();
@@ -1061,8 +1036,6 @@ function switchTab(id){
 // ── 설정 탭: 환산점수 가중치 / 드롭박스(기타업무, 팀명) 관리 (관리자 전용) ──
 var W_LABELS={인티추티:'인+티(+추티)',무선:'무선',전화단독:'전화/단독',약갱:'약갱',선약:'선약',기가아이즈:'기가아이즈',상품권:'상품권'};
 function loadSettingsTab(){
-  var gu=document.getElementById('gas-url'); if(gu) gu.value=GAS_URL;
-  var gc=document.getElementById('gas-code'); if(gc) gc.textContent=GAS_SCRIPT;
   var wb=document.getElementById('weight-edit-body');
   if(wb){
     wb.innerHTML='';
@@ -1088,6 +1061,7 @@ function saveWeights(){
     Object.keys(newW).forEach(function(k){ W[k]=newW[k]; });
     if(resEl) resEl.innerHTML='<span style="color:var(--ok)">✅ 저장됨 — 전체 실적/대시보드에 반영됩니다<\/span>';
     addLog('환산점수 가중치 변경');
+    renderAllPerfFormula();
   });
 }
 function saveDropdowns(){
@@ -1393,32 +1367,39 @@ function openCPop(date,e){
   var empWrap=document.getElementById('cpop-emp-wrap');
   var empSel=document.getElementById('cpop-emp-sel');
 
-  // 관리자면 직원 선택 드롭박스 표시
-  if(isAdmin){
-    empWrap.style.display='block';
-    empSel.innerHTML='<option value="'+CU.id+'">'+CU.name+' (나)</option>';
-    (cAn.reduce(function(arr,a){
-      if(!arr.find(function(x){return x.empId===a.empId;})) arr.push(a);
-      return arr;
-    },[]).concat(
-      // 전체 직원 목록에서 이미 있는 사람 제외하고 추가
-      (_seatUsers||[]).filter(function(u){return !cAn.find(function(a){return a.empId===u.id;})&&u.id!==CU.id;}).map(function(u){return {empId:u.id,empName:u.name};})
-    ));
-    // 전체 직원으로 채우기
-    api('getAllUsers',{}).then(function(r){
-      if(!r.ok) return;
-      empSel.innerHTML='';
-      r.employees.forEach(function(u){
-        var opt=document.createElement('option');
-        opt.value=u.id; opt.textContent=u.name+(u.id===CU.id?' (나)':'');
-        empSel.appendChild(opt);
-      });
-      refreshCPopState(date);
-    });
-  } else {
+  // 연차 등록/변경은 관리자만 가능 — 직원은 조회만 가능
+  if(!isAdmin){
     empWrap.style.display='none';
     refreshCPopState(date);
+    var margin0=8,x0=e.clientX+margin0,y0=e.clientY+margin0;
+    if(x0+240>window.innerWidth) x0=e.clientX-240-margin0;
+    if(y0+300>window.innerHeight) y0=e.clientY-300-margin0;
+    pop.style.left=x0+'px'; pop.style.top=y0+'px';
+    pop.classList.add('open');
+    return;
   }
+
+  // 관리자면 직원 선택 드롭박스 표시
+  empWrap.style.display='block';
+  empSel.innerHTML='<option value="'+CU.id+'">'+CU.name+' (나)</option>';
+  (cAn.reduce(function(arr,a){
+    if(!arr.find(function(x){return x.empId===a.empId;})) arr.push(a);
+    return arr;
+  },[]).concat(
+    // 전체 직원 목록에서 이미 있는 사람 제외하고 추가
+    (_seatUsers||[]).filter(function(u){return !cAn.find(function(a){return a.empId===u.id;})&&u.id!==CU.id;}).map(function(u){return {empId:u.id,empName:u.name};})
+  ));
+  // 전체 직원으로 채우기
+  api('getAllUsers',{}).then(function(r){
+    if(!r.ok) return;
+    empSel.innerHTML='';
+    r.employees.forEach(function(u){
+      var opt=document.createElement('option');
+      opt.value=u.id; opt.textContent=u.name+(u.id===CU.id?' (나)':'');
+      empSel.appendChild(opt);
+    });
+    refreshCPopState(date);
+  });
 
   var margin=8,x=e.clientX+margin,y=e.clientY+margin;
   if(x+240>window.innerWidth) x=e.clientX-240-margin;
@@ -1435,11 +1416,24 @@ function refreshCPopState(date){
   var empSel=document.getElementById('cpop-emp-sel');
   var targetId=isAdmin?empSel.value:CU.id;
   var targetName=isAdmin?(empSel.options[empSel.selectedIndex]&&empSel.options[empSel.selectedIndex].textContent.replace(' (나)','')):CU.name;
-  document.getElementById('cpop-lbl').textContent=date+' - '+targetName;
-  var exist=cAn.find(function(a){return a.empId===targetId&&a.date===date;});
-  document.getElementById('cpop-del').style.display=(exist&&(isAdmin||targetId===CU.id))?'inline-flex':'none';
+  document.getElementById('cpop-lbl').textContent=date+' - '+(isAdmin?targetName:'연차 현황');
   var tc=document.getElementById('cpop-types');
   tc.innerHTML='';
+  if(!isAdmin){
+    // 직원은 조회만 가능 — 등록/변경/삭제 버튼 없음
+    document.getElementById('cpop-del').style.display='none';
+    var dayAnns=cAn.filter(function(a){return a.date===date;});
+    if(dayAnns.length){
+      tc.innerHTML='<div style="font-size:12px;color:var(--ts);line-height:1.8">'+
+        dayAnns.map(function(a){return '<div>'+a.empName+' — '+a.type+'<\/div>';}).join('')+'<\/div>';
+    } else {
+      tc.innerHTML='<div style="font-size:12px;color:var(--tm)">등록된 연차가 없습니다.<\/div>';
+    }
+    tc.innerHTML+='<div style="font-size:11px;color:var(--tm);margin-top:8px">⚠️ 연차 등록/변경은 관리자만 가능합니다.<\/div>';
+    return;
+  }
+  var exist=cAn.find(function(a){return a.empId===targetId&&a.date===date;});
+  document.getElementById('cpop-del').style.display=exist?'inline-flex':'none';
   ATYPES.forEach(function(t){
     var btn=document.createElement('button');
     btn.className='at-btn'+(exist&&exist.type===t.k?' sel':'');
@@ -2205,6 +2199,23 @@ function adminDelPerf(empId,date,name){
 }
 
 // ── 직원 관리 ─────────────────────────────────
+// 전체실적 페이지의 '환산점수 계산 기준' 안내를 설정(W) 값 그대로 동적으로 그림
+function renderAllPerfFormula(){
+  var bodyEl=document.getElementById('allperf-formula-body');
+  var exEl=document.getElementById('allperf-formula-ex');
+  if(!bodyEl) return;
+  var f=function(v){return Number(v||0).toFixed(2);};
+  bodyEl.innerHTML=
+    '<strong style="color:var(--tp)">기준: 인+티(+추티) 1개 = 15분 = '+f(W.인티추티)+'점</strong><br>'+
+    '인+티(+추티) 1개 = <b>'+f(W.인티추티)+'pt</b> &nbsp;|&nbsp; 무선 1개 = <b>'+f(W.무선)+'pt</b> &nbsp;|&nbsp; '+
+    '기가아이즈 1개 = <b>'+f(W.기가아이즈)+'pt</b> &nbsp;|&nbsp; 전화/단독 1개 = <b>'+f(W.전화단독)+'pt</b><br>'+
+    '약갱 1개 = <b>'+f(W.약갱)+'pt</b> &nbsp;|&nbsp; 상품권 1개 = <b>'+f(W.상품권)+'pt</b> &nbsp;|&nbsp; '+
+    '선약 1개 = <b>'+f(W.선약)+'pt</b><br>'+
+    '<span style="color:var(--wn)">⚡ 기타업무: 해당 시간대 접수 환산합계가 4pt 미만이면 (4 - 접수환산)pt 추가</span>'+
+    '<div style="font-size:11px;color:var(--tm);margin-top:6px">※ 이 가중치는 설정 탭에서 관리자가 수정할 수 있으며, 수정 즉시 여기에도 반영됩니다.</div>';
+  if(exEl) exEl.textContent='예) 인+티 2개('+f(W.인티추티*2)+'pt) + 기타업무 체크 → 4-'+f(W.인티추티*2)+'='+f(Math.max(0,4-W.인티추티*2))+'pt 추가 → 총 4pt';
+}
+
 function loadEmps(){
   var monthEl=document.getElementById('emps-month');
   if(monthEl&&!monthEl.value) monthEl.value=new Date().toISOString().slice(0,7);
@@ -2258,7 +2269,17 @@ function loadEmps(){
       var el=document.getElementById('emp-section-'+k);
       if(el) el.innerHTML=ldg();
     });
-    api('getPerfs',{ym:ym}).then(function(pr){      var allPerfs=pr.ok?pr.perfs:[];
+    function showEmpSectionsError(msg){
+      ['S','A','B','C','D','nodata'].forEach(function(k){
+        var el=document.getElementById('emp-section-'+k);
+        if(el) el.innerHTML=alHtml(msg+' <button class="btn btn-se btn-xs" onclick="loadEmps()" style="margin-left:8px">다시 시도</button>','er');
+      });
+    }
+    var timeoutP=new Promise(function(resolve){ setTimeout(function(){resolve({ok:false,error:'응답 시간 초과(15초). GAS 배포 상태를 확인해주세요.'});},15000); });
+    Promise.race([api('getPerfs',{ym:ym}),timeoutP]).then(function(pr){
+      if(!pr||!pr.ok){ showEmpSectionsError(pr&&pr.error?pr.error:'실적 데이터를 불러오지 못했습니다.'); return; }
+      try {
+      var allPerfs = pr.perfs;
       var monthPerfs=allPerfs.filter(function(p){return p.date.indexOf(ym)===0;});
       var today=new Date().toISOString().slice(0,10);
       var endOfMonth=ym+'-'+new Date(parseInt(ym.slice(0,4)),parseInt(ym.slice(5,7)),0).getDate().toString().padStart(2,'0');
@@ -2358,6 +2379,11 @@ function loadEmps(){
       el.appendChild(grid);
     });
 
+      } catch(err){
+        showEmpSectionsError('직원 등급 표시 중 오류가 발생했습니다: '+err.message);
+      }
+    }).catch(function(err){
+      showEmpSectionsError('실적 데이터를 불러오지 못했습니다: '+(err&&err.message?err.message:err));
     });
   });
 }
@@ -2693,17 +2719,7 @@ function deleteIPG(id){
   if(!confirm('이 IP 그룹을 삭제하시겠습니까?')) return;
   api('deleteIPGroup',{id:id}).then(function(res){if(res.ok)loadIPs();else alert(res.error||'삭제 실패');});
 }
-function saveGas(){GAS_URL=document.getElementById('gas-url').value.trim();localStorage.setItem('gas_url',GAS_URL);document.getElementById('gas-result').innerHTML='<span style="color:var(--ok)">✅ 저장됨<\/span>';}
-function testGas(){
-  var url=document.getElementById('gas-url').value.trim();
-  if(!url){document.getElementById('gas-result').innerHTML='<span style="color:var(--dg)">URL을 입력하세요<\/span>';return;}
-  document.getElementById('gas-result').textContent='테스트 중...';
-  var pingParams=new URLSearchParams({action:'ping',data:'{}'});
-  fetch(url+'?'+pingParams.toString(),{method:'GET'})
-    .then(function(r){return r.json();})
-    .then(function(d){document.getElementById('gas-result').innerHTML=d.ok?'<span style="color:var(--ok)">✅ 연결 성공<\/span>':'<span style="color:var(--dg)">오류: '+d.error+'<\/span>';})
-    .catch(function(e){document.getElementById('gas-result').innerHTML='<span style="color:var(--dg)">❌ 연결 실패: '+e.message+'<\/span>';});
-}
+
 function setToday(){var d=document.getElementById('pd');if(d)d.value=new Date().toISOString().slice(0,10);}
 function setMR(si,ei){var d=new Date(),e=d.toISOString().slice(0,10);d.setDate(1);document.getElementById(si).value=d.toISOString().slice(0,10);document.getElementById(ei).value=e;}
 function showAl(id,msg,t){var el=document.getElementById(id);el.className='al al-'+t;el.textContent=msg;el.style.display='flex';if(t!=='in')setTimeout(function(){el.style.display='none';},5000);}
@@ -2719,7 +2735,6 @@ function abdg(s){
 }
 function openM(id){document.getElementById(id).classList.add('open');}
 function closeM(id){document.getElementById(id).classList.remove('open');}
-var GAS_SCRIPT='// Google Apps Script 코드\n// 1. sheets.google.com 에서 새 스프레드시트 생성\n// 2. 확장 프로그램 > Apps Script 클릭\n// 3. 아래 코드 붙여넣기 후 저장\n// 4. 배포 > 새 배포 > 웹 앱 > 액세스: 모든 사용자\n// 5. 생성된 URL을 설정 탭에 입력\n\n// (전체 코드는 이전 버전 파일 또는 개발자에게 문의하세요)';
 document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('lbtn').addEventListener('click',doLogin);
   document.getElementById('lpw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
@@ -2769,8 +2784,6 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('ipg-add-row').addEventListener('click',function(){addIPRow();});
   document.getElementById('ipg-cancel').addEventListener('click',function(){closeM('m-ipg');});
   document.getElementById('ipg-ok').addEventListener('click',saveIPG);
-  document.getElementById('gas-sv-btn').addEventListener('click',saveGas);
-  document.getElementById('gas-test-btn').addEventListener('click',testGas);
   var dtEditBtn=document.getElementById('dash-target-edit-btn');
   if(dtEditBtn) dtEditBtn.addEventListener('click',function(){
     var panel=document.getElementById('dash-target-edit');
