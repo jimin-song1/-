@@ -1250,7 +1250,12 @@ function buildPerfTable(){
   updatePTtl();
 }
 
-document.addEventListener('click',function(){document.querySelectorAll('.etc-d.open').forEach(function(d){d.classList.remove('open');});});
+document.addEventListener('click',function(e){
+  // 드롭다운 내부 클릭이면 닫지 않음 (여러 개 선택 가능하게)
+  if(e.target.closest&&e.target.closest('.etc-d')) return;
+  if(e.target.closest&&e.target.closest('.etc-t')) return;
+  document.querySelectorAll('.etc-d.open').forEach(function(d){d.classList.remove('open');});
+});
 
 function onEtc(i){
   var vs=[].slice.call(document.querySelectorAll('#ed-'+i+' input:checked')).map(function(c){return c.value;});
