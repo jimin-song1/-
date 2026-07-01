@@ -733,7 +733,7 @@ var _pid=1,_iid=5;
 
 // ── 캐시 ─────────────────────────────────────
 var _cache={};
-var CACHE_TTL=60000; // 60초
+var CACHE_TTL=30000; // 30초 (직원목록 등)
 var CACHE_TTL_SHORT=20000; // 20초 (실적 등 자주 바뀌는 캐시)
 // 캐시 대상 액션 (읽기 전용 + 자주 안 바뀌는 것)
 var CACHEABLE=['getAllUsers','getEmployees','getSeats','getIPGroups','getCalNotice','getSettings'];
@@ -763,8 +763,14 @@ function cacheGet(key,short){
 }
 function cacheSet(key,data){_cache[key]={data:data,ts:Date.now()};}
 function cacheInvalidate(action){
-  var keys=CACHE_INVALIDATE[action]||[];
-  keys.forEach(function(k){delete _cache[k];});
+  var prefixes=CACHE_INVALIDATE[action]||[];
+  if(!prefixes.length) return;
+  // 캐시 키는 'action:JSON' 형태이므로 prefix가 포함된 키를 전부 삭제
+  Object.keys(_cache).forEach(function(k){
+    prefixes.forEach(function(p){
+      if(k===p||k.indexOf(p+':')===0) delete _cache[k];
+    });
+  });
 }
 
 // ── 전역 설정값 (관리자가 수정 → '설정' 시트에 저장 → 전체 사용자에 반영) ──
@@ -1627,12 +1633,20 @@ function deleteAnnual(){
 function loadCalNotice(){
   var viewEl=document.getElementById('cal-notice-view');
   var editBtn=document.getElementById('cal-notice-edit-btn');
+  var card=document.getElementById('cal-notice-card');
   if(!viewEl) return;
   api('getCalNotice',{}).then(function(res){
-    var notice=res.ok?res.notice:D_CAL_NOTICE;
-    viewEl.innerHTML=notice.split('\n').map(function(l){return '<div>'+l+'<\/div>';}).join('');
+    var notice=(res.ok?res.notice:D_CAL_NOTICE)||'';
+    var isAdmin=CU&&CU.role==='admin';
+    if(!notice.trim()){
+      // 공지 없음: 관리자는 빈 상태로 카드 유지(수정 가능), 직원은 카드 숨김
+      if(card) card.style.display=isAdmin?'':'none';
+      viewEl.innerHTML=isAdmin?'<span style="color:#C0955A;font-size:12px">공지사항을 입력해주세요.</span>':'';
+    } else {
+      if(card) card.style.display='';
+      viewEl.innerHTML=notice.split('\n').map(function(l){return '<div>'+(l||'&nbsp;')+'<\/div>';}).join('');
+    }
   });
-  // 관리자만 수정 버튼 표시
   if(editBtn) editBtn.style.display=CU.role==='admin'?'inline-flex':'none';
 }
 function openCalNoticeEdit(){
@@ -2477,9 +2491,34 @@ function loadEmps(){
         if(el){ el.style.opacity='1'; el.innerHTML=alHtml(msg+' <button class="btn btn-se btn-xs" onclick="loadEmps()" style="margin-left:8px">다시 시도</button>','er'); }
       });
     }
-    var timeoutP=new Promise(function(resolve){ setTimeout(function(){resolve({ok:false,error:'응답 시간 초과(15초). GAS 배포 상태를 확인해주세요.'});},15000); });
+    var timeoutP=new Promise(function(resolve){ setTimeout(function(){resolve({ok:false,error:'응답 시간 초과(10초).'});},10000); });
     Promise.race([api('getPerfs',{ym:ym}),timeoutP]).then(function(pr){
-      if(!pr||!pr.ok){ showEmpSectionsError(pr&&pr.error?pr.error:'실적 데이터를 불러오지 못했습니다.'); return; }
+      if(!pr||!pr.ok){
+        // 실적 데이터 없어도 직원 목록은 직급순으로 보여줌 (실적 없음 섹션에 전부 표시)
+        ['S','A','B','C','D'].forEach(function(k){var el=document.getElementById('emp-section-'+k);if(el){el.innerHTML='';el.style.opacity='1';}});
+        var nodataEl=document.getElementById('emp-section-nodata');
+        if(nodataEl){
+          nodataEl.style.opacity='1';
+          var sorted=sortByRank(normalEmps,function(u){return u.name;},function(u){return u.rank;});
+          if(sorted.length){
+            var hdr=document.createElement('div');
+            hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg);border-radius:8px;border-left:4px solid var(--tm)';
+            hdr.innerHTML='<span style="font-size:13px;font-weight:700;color:var(--tm)">👥 직원<\/span><span style="font-size:12px;color:var(--tm);opacity:.7">'+sorted.length+'명<\/span><span style="font-size:11px;color:var(--wn);margin-left:auto">실적 데이터 미조회<\/span>';
+            nodataEl.innerHTML='';
+            nodataEl.appendChild(hdr);
+            var grid=document.createElement('div'); grid.className='emp-grid'; grid.style.marginBottom='18px';
+            sorted.forEach(function(e){
+              var card=document.createElement('div'); card.className='card'; card.style.cursor='pointer';
+              var retiredBadge=e.retired?'<span class="bdg b-gr" style="margin-left:6px">퇴사<\/span>':'';
+              card.innerHTML='<div style="display:flex;align-items:center;gap:12px"><div style="width:42px;height:42px;border-radius:50%;background:'+(e.color||'#9CA3AF')+';display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;flex-shrink:0">'+e.name[0]+'<\/div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">'+e.name+retiredBadge+'<\/div><div style="font-size:12px;color:var(--tm)"><code>'+e.id+'<\/code> · '+(e.rank||'-')+' · '+(e.team||'-')+'<\/div><\/div><\/div>';
+              card.addEventListener('click',function(){openEmpD(e.id);});
+              grid.appendChild(card);
+            });
+            nodataEl.appendChild(grid);
+          } else { nodataEl.innerHTML=''; }
+        }
+        return;
+      }
       try {
       var allPerfs = pr.perfs;
       var monthPerfs=allPerfs.filter(function(p){return p.date.indexOf(ym)===0;});
