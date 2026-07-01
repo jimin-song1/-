@@ -89,7 +89,7 @@ table.dt td.tdl{text-align:left;}
 @keyframes spin{to{transform:rotate(360deg);}}
 .mbg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;align-items:center;justify-content:center;padding:16px;}
 .mbg.open{display:flex;}
-.modal{background:var(--s);border-radius:16px;padding:26px;width:100%;max-width:520px;box-shadow:0 24px 80px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;}
+.modal{background:var(--s);border-radius:16px;padding:26px;width:100%;max-width:820px;box-shadow:0 24px 80px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;}
 .mttl{font-size:16px;font-weight:600;margin-bottom:16px;}
 .mact{display:flex;gap:8px;margin-top:18px;justify-content:flex-end;}
 .m2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
@@ -2264,7 +2264,7 @@ function openEmpTargets(){
   api('getAllUsers',{}).then(function(r){
     if(!r.ok){alert(r.error);return;}
     _empTargetsUsers=sortByRank(
-      r.employees.filter(function(e){return e.role!=='admin';}),
+      r.employees.filter(function(e){return e.role!=='admin'&&!e.retired;}),
       function(u){return u.name;},function(u){return u.rank;}
     );
     var body=document.getElementById('emptargets-body');
@@ -2433,14 +2433,15 @@ function loadChangeLogs(){
 }
 
 // ── 자리 배치도 ────────────────────────────────
-var _seatUsers = [];
 var _seatUsers=[];
 var _seatData={};  // 마지막으로 불러온 seats (label 포함) 메모리 캐시
 function loadSeats(){
   Promise.all([api('getSeats',{}),api('getAllUsers',{})]).then(function(rs){
     var seats=rs[0].ok?rs[0].seats:D_SEATS;
     _seatData=seats;
-    _seatUsers=sortByRank(rs[1].ok?rs[1].employees:[],function(u){return u.name;},function(u){return u.rank;});
+    _seatUsers=sortByRank(
+      (rs[1].ok?rs[1].employees:[]).filter(function(u){return !u.retired;}),
+      function(u){return u.name;},function(u){return u.rank;});
     var isA=CU.role==='admin';
 
     var saveBtn=document.getElementById('seats-save-btn');
@@ -2755,7 +2756,7 @@ function loadEval(){
               '<div style="font-size:12px;color:var(--tm)">'+(e.rank||'-')+' · '+(e.team||'-')+'<\/div>'+
             '<\/div>'+
           '<\/div>'+scoreLine+tgtHtml;
-        card.addEventListener('click',function(){openEvalDetail(e,ym,pt,cnt,biz,gr);});
+        card.addEventListener('click',function(){openEvalDetail(e,ym,pt,cnt,biz,gr,perfs);});
         grid.appendChild(card);
       });
       el.appendChild(grid);
@@ -2763,32 +2764,96 @@ function loadEval(){
   });
 }
 
-// 직원 평가 상세 팝업 (모달 재활용)
-function openEvalDetail(e, ym, pt, cnt, biz, gr){
+// 직원 평가 상세 팝업
+function openEvalDetail(e, ym, pt, cnt, biz, gr, perfs){
   var avg=biz>0?(pt/biz).toFixed(1):'0.0';
   var tgt=EMP_SCORE_TARGETS[e.id];
+  var empPerfs=(perfs||[]).filter(function(p){return p.empId===e.id;})
+    .sort(function(a,b){return b.date.localeCompare(a.date);});
+
+  // 목표달성률
   var tgtLine='';
   if(tgt){
     var mTgt=tgt*biz;
     var pct=mTgt>0?Math.min(Math.round(pt/mTgt*100),999):0;
     var col=pct>=100?'var(--ok)':pct>=70?'var(--wn)':'var(--dg)';
-    tgtLine='<div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:8px">'+
-      '<div style="font-size:12px;font-weight:600;color:var(--ts);margin-bottom:6px">목표 달성률</div>'+
+    tgtLine='<div style="margin:10px 0;padding:10px;background:var(--bg);border-radius:8px">'+
+      '<div style="font-size:12px;font-weight:600;color:var(--ts);margin-bottom:6px">목표 달성률<\/div>'+
       '<div class="cb" style="margin-bottom:4px"><div class="cf" style="width:'+Math.min(pct,100)+'%;background:'+col+'"><\/div><\/div>'+
       '<div style="font-size:13px;font-weight:700;color:'+col+'">'+pt.toFixed(1)+' \/ '+mTgt.toFixed(1)+'pt ('+pct+'%)<\/div>'+
       '<div style="font-size:11px;color:var(--tm);margin-top:2px">일별 목표 '+tgt+'pt × 영업일 '+biz+'일<\/div><\/div>';
   }
+
   var grBadge=gr?'<span style="font-size:13px;font-weight:700;padding:3px 12px;border-radius:20px;background:'+gr.bg+';color:'+gr.c+'">'+gr.g+'등급<\/span>':'<span style="font-size:13px;color:var(--tm)">실적 없음<\/span>';
+
+  // 기타업무 집계 (이달 전체)
+  var etcMap={};
+  empPerfs.forEach(function(p){
+    p.rows.forEach(function(r){
+      if(r['기타업무']) r['기타업무'].split(',').filter(Boolean).forEach(function(x){
+        etcMap[x]=(etcMap[x]||0)+1;
+      });
+    });
+  });
+  var etcSorted=Object.keys(etcMap).sort(function(a,b){return etcMap[b]-etcMap[a];});
+  var etcHtml=etcSorted.length?
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+
+      etcSorted.map(function(k){return '<span class="bdg b-b">'+k+' ('+etcMap[k]+'회)<\/span>';}).join('')+
+    '<\/div>':
+    '<span style="font-size:12px;color:var(--tm)">없음<\/span>';
+
+  // 고정업무
+  var dutyHtml=e.duty?
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+
+      e.duty.split(',').filter(Boolean).map(function(d){return '<span class="bdg b-gr">'+d.trim()+'<\/span>';}).join('')+
+    '<\/div>':
+    '<span style="font-size:12px;color:var(--tm)">없음<\/span>';
+
+  // 날짜별 상세 테이블
+  var detailHtml='';
+  if(empPerfs.length){
+    detailHtml='<div class="slbl">월 실적 상세<\/div>';
+    detailHtml+='<div class="tw"><table class="dt"><thead><tr><th>날짜<\/th><th>근태<\/th>';
+    FIELDS.forEach(function(f){detailHtml+='<th>'+f.l+'<\/th>';});
+    detailHtml+='<th>기타업무<\/th><th>합계<\/th><th style="background:#EEF3FD;color:var(--ad)">환산점수<\/th><\/tr><\/thead><tbody>';
+    empPerfs.forEach(function(p){
+      var sm={};FIELDS.forEach(function(f){sm[f.k]=0;});var ea=[];
+      p.rows.forEach(function(r){
+        FIELDS.forEach(function(f){sm[f.k]+=r[f.k]||0;});
+        if(r['기타업무'])ea=ea.concat(r['기타업무'].split(',').filter(Boolean));
+      });
+      var tot=FIELDS.reduce(function(s,f){return s+sm[f.k];},0);
+      var ws=calcTW(p.rows);
+      var etcU=[]; ea.forEach(function(x){if(etcU.indexOf(x)===-1)etcU.push(x);});
+      detailHtml+='<tr><td><strong>'+p.date+'<\/strong><\/td><td>'+abdg(p.attendStatus)+'<\/td>';
+      FIELDS.forEach(function(f){detailHtml+='<td>'+(sm[f.k]||0)+'<\/td>';});
+      detailHtml+='<td style="font-size:11px;color:var(--tm)">'+(etcU.join(', ')||'-')+'<\/td>'+
+        '<td><strong>'+tot+'<\/strong><\/td>'+
+        '<td style="background:#EEF3FD;font-weight:700;color:var(--ad)">'+ws.toFixed(2)+'<\/td><\/tr>';
+    });
+    detailHtml+='<\/tbody><\/table><\/div>';
+  } else {
+    detailHtml='<div class="empty"><div class="ei">📋<\/div><p>이달 실적 없음<\/p><\/div>';
+  }
+
   document.getElementById('empd-ttl').textContent=e.name+' · '+ym+' 평가';
   document.getElementById('empd-body').innerHTML=
-    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'+grBadge+'<\/div>'+
-    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">'+
-      '<div class="sc sc-a"><div class="sv" style="font-size:20px">'+pt.toFixed(1)+'<\/div><div class="sl">환산점수(pt)<\/div><\/div>'+
-      '<div class="sc sc-o"><div class="sv" style="font-size:20px">'+avg+'<\/div><div class="sl">일평균 pt<\/div><\/div>'+
-      '<div class="sc sc-p"><div class="sv" style="font-size:20px">'+cnt+'<\/div><div class="sl">접수 건수<\/div><\/div>'+
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'+grBadge+
+      '<span style="font-size:12px;color:var(--tm)">'+e.rank+' · '+e.team+'<\/span>'+
     '<\/div>'+
-    tgtLine;
-  // 저장/퇴사 버튼 숨김, 닫기만
+    '<div class="sgrid" style="margin-bottom:4px">'+
+      '<div class="sc sc-a"><div class="sv">'+pt.toFixed(1)+'<\/div><div class="sl">환산점수(pt)<\/div><\/div>'+
+      '<div class="sc sc-o"><div class="sv">'+avg+'<\/div><div class="sl">일평균(pt)<\/div><\/div>'+
+      '<div class="sc sc-p"><div class="sv">'+empPerfs.length+'<\/div><div class="sl">입력 일수<\/div><\/div>'+
+      '<div class="sc sc-d"><div class="sv">'+cnt+'<\/div><div class="sl">접수 건수<\/div><\/div>'+
+    '<\/div>'+
+    tgtLine+
+    '<div style="padding:10px;background:var(--bg);border-radius:8px;margin-bottom:10px">'+
+      '<div style="font-size:12px;font-weight:600;color:var(--ts);margin-bottom:4px">고정업무<\/div>'+dutyHtml+
+      '<div style="font-size:12px;font-weight:600;color:var(--ts);margin:10px 0 4px">주요 기타업무 (이달)<\/div>'+etcHtml+
+    '<\/div>'+
+    detailHtml;
+
   document.getElementById('empd-ok').style.display='none';
   document.getElementById('empd-del').style.display='none';
   document.getElementById('empd-retire').style.display='none';
