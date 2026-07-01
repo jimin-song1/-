@@ -559,10 +559,28 @@ table.pt td.otc{background:#FFF8F8;}
         </div>
       </div>
       <div class="card" style="margin-top:0">
-        <div class="cttl" style="margin-bottom:4px">🔽 드롭박스 관리 (관리자 전용)</div>
-        <p style="font-size:13px;color:var(--ts);margin-bottom:12px">실적입력의 '기타업무' 목록과, 직원등록 시 사용하는 '팀' 목록을 관리합니다. 한 줄에 항목 하나씩 입력하세요.</p>
+        <div class="cttl" style="margin-bottom:4px">🎯 환산점수 상한/보너스 설정 (관리자 전용)</div>
+        <p style="font-size:13px;color:var(--ts);margin-bottom:12px">시간대별 환산점수의 기본점수·상한·보너스입니다. 기타업무 체크 시 기본점수까지 채워지고, 정규업무+기타업무를 동시에 수행하면 멀티보너스가, 고정업무 항목 체크 시 고정업무보너스가 추가되며, 기타업무가 있는 시간대는 합계가 상한을 넘지 않습니다. (기타업무가 없으면 상한이 적용되지 않고 정규업무 환산점수 그대로 반영됩니다)</p>
         <div class="m2">
-          <div class="fg"><label>기타업무 드롭박스 항목</label><textarea id="etc-items-edit" rows="6"></textarea></div>
+          <div class="fg"><label>기본점수 (기타업무 최소 보장)</label><input type="number" step="0.01" min="0" id="score-base-edit"></div>
+          <div class="fg"><label>시간대당 환산점수 상한</label><input type="number" step="0.01" min="0" id="score-max-edit"></div>
+          <div class="fg"><label>멀티 보너스 (정규업무+기타업무 동시수행)</label><input type="number" step="0.01" min="0" id="score-multi-edit"></div>
+          <div class="fg"><label>고정업무 보너스 (시간당)</label><input type="number" step="0.01" min="0" id="score-fixed-edit"></div>
+        </div>
+        <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+          <button class="btn btn-pr btn-sm" id="score-bonus-save-btn">저장</button>
+          <span id="score-bonus-save-result" style="font-size:12px"></span>
+        </div>
+      </div>
+      <div class="card" style="margin-top:0">
+        <div class="cttl" style="margin-bottom:4px">🔽 드롭박스 관리 (관리자 전용)</div>
+        <p style="font-size:13px;color:var(--ts);margin-bottom:12px">실적입력의 '기타업무' 목록(항목별 고정업무/일반 구분 포함)과, 직원등록 시 사용하는 '팀' 목록을 관리합니다.</p>
+        <div class="m2">
+          <div class="fg">
+            <label>기타업무 드롭박스 항목 (고정업무 / 일반 구분)</label>
+            <div id="etc-items-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+            <button type="button" class="btn btn-se btn-xs" id="etc-item-add-btn">+ 항목 추가</button>
+          </div>
           <div class="fg"><label>팀명 드롭박스 항목</label><textarea id="teams-flat-edit" rows="6"></textarea></div>
         </div>
         <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
@@ -725,6 +743,13 @@ var ATYPES=[
   {k:'오후반반차',l:'오후반반차',c:'cc-hhpm'}
 ];
 var W={인티추티:1,무선:1,전화단독:1/3,약갱:1/3,선약:1/5,기가아이즈:2/3,상품권:4/15};
+// ── 시간대별 환산점수 상한/보너스 (관리자가 '설정' 탭에서 수정 가능) ──
+var SCORE_BASE=4;    // 기타업무 체크 시 최소 보장 점수(기본환산점수)
+var SCORE_MAX=5.5;   // 시간대당 환산점수 상한
+var SCORE_MULTI=0.5; // 멀티 보너스: 정규항목(인+티~상품권)+기타업무 동시 수행 시 추가
+var SCORE_FIXED=1.5; // 고정업무 보너스(시간당) — 기타업무 항목 중 '고정업무'로 분류된 항목 체크 시 추가
+// 기타업무 항목별 분류: {항목명:'fixed'|'general'} — 미지정 항목은 'general' 취급
+var ETC_TYPES={};
 
 // ── 팀 목록 (관리자가 '설정' 탭에서 수정 가능, 기본값 2개) ──
 var TEAMS_FLAT=['우신기술사업부','우신1팀'];
@@ -846,6 +871,11 @@ function loadGlobalSettings(cb){
       EMP_TARGETS=s.EMP_TARGETS||{};
       EMP_SCORE_TARGETS=s.EMP_SCORE_TARGETS||{};
       if(s.SCORE_WEIGHTS) Object.keys(s.SCORE_WEIGHTS).forEach(function(k){W[k]=Number(s.SCORE_WEIGHTS[k]);});
+      if(s.SCORE_BASE!=null && !isNaN(Number(s.SCORE_BASE))) SCORE_BASE=Number(s.SCORE_BASE);
+      if(s.SCORE_MAX!=null && !isNaN(Number(s.SCORE_MAX))) SCORE_MAX=Number(s.SCORE_MAX);
+      if(s.SCORE_MULTI!=null && !isNaN(Number(s.SCORE_MULTI))) SCORE_MULTI=Number(s.SCORE_MULTI);
+      if(s.SCORE_FIXED!=null && !isNaN(Number(s.SCORE_FIXED))) SCORE_FIXED=Number(s.SCORE_FIXED);
+      if(s.ETC_TYPES) ETC_TYPES=s.ETC_TYPES;
       if(s.ETC_ITEMS&&s.ETC_ITEMS.length){ETC.length=0;ETC.push.apply(ETC,s.ETC_ITEMS);}
       if(s.TEAMS_FLAT&&s.TEAMS_FLAT.length){TEAMS_FLAT.length=0;TEAMS_FLAT.push.apply(TEAMS_FLAT,s.TEAMS_FLAT);}
     }
@@ -1174,10 +1204,36 @@ function loadSettingsTab(){
       wb.appendChild(fg);
     });
   }
-  var etcEl=document.getElementById('etc-items-edit');
-  if(etcEl) etcEl.value=ETC.join('\n');
+  var sbEl=document.getElementById('score-base-edit'); if(sbEl) sbEl.value=SCORE_BASE;
+  var smxEl=document.getElementById('score-max-edit'); if(smxEl) smxEl.value=SCORE_MAX;
+  var smuEl=document.getElementById('score-multi-edit'); if(smuEl) smuEl.value=SCORE_MULTI;
+  var sfEl=document.getElementById('score-fixed-edit'); if(sfEl) sfEl.value=SCORE_FIXED;
+  renderEtcItemsEditor();
   var teamsEl=document.getElementById('teams-flat-edit');
   if(teamsEl) teamsEl.value=TEAMS_FLAT.join('\n');
+}
+// 기타업무 항목 편집 UI: 항목명 입력 + 고정업무/일반 선택 드롭박스 + 삭제 버튼, 한 줄씩
+function renderEtcItemsEditor(){
+  var wrap=document.getElementById('etc-items-list');
+  if(!wrap) return;
+  wrap.innerHTML='';
+  ETC.forEach(function(name){ addEtcItemRow(name, ETC_TYPES[name]==='fixed'?'fixed':'general'); });
+}
+function addEtcItemRow(name,type){
+  var wrap=document.getElementById('etc-items-list');
+  if(!wrap) return;
+  var row=document.createElement('div');
+  row.className='etc-item-row';
+  row.style.cssText='display:flex;gap:6px;align-items:center';
+  row.innerHTML=
+    '<input type="text" class="etc-item-name" value="'+(name||'').replace(/"/g,'&quot;')+'" placeholder="항목명" style="flex:1;padding:8px 10px;border:1.5px solid var(--b);border-radius:8px;font-size:13px;font-family:inherit;outline:none;background:var(--bg)">'+
+    '<select class="etc-item-type" style="padding:8px 10px;border:1.5px solid var(--b);border-radius:8px;font-size:13px;font-family:inherit;outline:none;background:var(--s)">'+
+      '<option value="general"'+(type==='fixed'?'':' selected')+'>일반기타업무</option>'+
+      '<option value="fixed"'+(type==='fixed'?' selected':'')+'>고정업무</option>'+
+    '<\/select>'+
+    '<button type="button" class="btn btn-dg btn-xs etc-item-del">삭제</button>';
+  row.querySelector('.etc-item-del').addEventListener('click',function(){ row.remove(); });
+  wrap.appendChild(row);
 }
 function saveAnnualMode(){
   var v=document.getElementById('annual-mode-edit').value;
@@ -1203,14 +1259,37 @@ function saveWeights(){
     renderAllPerfFormula();
   });
 }
+function saveScoreBonus(){
+  var base=Number(document.getElementById('score-base-edit').value)||0;
+  var max=Number(document.getElementById('score-max-edit').value)||0;
+  var multi=Number(document.getElementById('score-multi-edit').value)||0;
+  var fixed=Number(document.getElementById('score-fixed-edit').value)||0;
+  api('saveSettings',{SCORE_BASE:base,SCORE_MAX:max,SCORE_MULTI:multi,SCORE_FIXED:fixed}).then(function(res){
+    var resEl=document.getElementById('score-bonus-save-result');
+    if(!res.ok){ if(resEl) resEl.innerHTML='<span style="color:var(--dg)">'+(res.error||'저장 실패')+'<\/span>'; return; }
+    SCORE_BASE=base; SCORE_MAX=max; SCORE_MULTI=multi; SCORE_FIXED=fixed;
+    if(resEl) resEl.innerHTML='<span style="color:var(--ok)">✅ 저장됨 — 전체 실적/대시보드에 반영됩니다<\/span>';
+    addLog('환산점수 상한/보너스 설정 변경');
+    renderAllPerfFormula();
+  });
+}
 function saveDropdowns(){
-  var etcArr=(document.getElementById('etc-items-edit').value||'').split('\n').map(function(s){return s.trim();}).filter(Boolean);
+  var rows=[].slice.call(document.querySelectorAll('#etc-items-list .etc-item-row'));
+  var etcArr=[], typesObj={};
+  rows.forEach(function(row){
+    var nm=(row.querySelector('.etc-item-name').value||'').trim();
+    if(!nm) return;
+    var tp=row.querySelector('.etc-item-type').value;
+    etcArr.push(nm);
+    typesObj[nm]=tp;
+  });
   var teamsArr=(document.getElementById('teams-flat-edit').value||'').split('\n').map(function(s){return s.trim();}).filter(Boolean);
   if(!etcArr.length||!teamsArr.length){alert('항목은 최소 1개 이상이어야 합니다.');return;}
-  api('saveSettings',{ETC_ITEMS:etcArr,TEAMS_FLAT:teamsArr}).then(function(res){
+  api('saveSettings',{ETC_ITEMS:etcArr,ETC_TYPES:typesObj,TEAMS_FLAT:teamsArr}).then(function(res){
     var resEl=document.getElementById('dropdown-save-result');
     if(!res.ok){ if(resEl) resEl.innerHTML='<span style="color:var(--dg)">'+(res.error||'저장 실패')+'<\/span>'; return; }
     ETC.length=0; ETC.push.apply(ETC,etcArr);
+    ETC_TYPES=typesObj;
     TEAMS_FLAT.length=0; TEAMS_FLAT.push.apply(TEAMS_FLAT,teamsArr);
     if(resEl) resEl.innerHTML='<span style="color:var(--ok)">✅ 저장됨 — 다음 화면부터 반영됩니다<\/span>';
     addLog('드롭박스 목록 변경 (기타업무/팀명)');
@@ -1244,7 +1323,8 @@ function buildPerfTable(){
     h+='<div class="etc-t" id="et-'+i+'"><span class="etlbl" id="el-'+i+'">선택<\/span><span style="font-size:10px;color:var(--tm)">▼<\/span><\/div>';
     h+='<div class="etc-d" id="ed-'+i+'">';
     ETC.forEach(function(o){
-      h+='<label class="etc-o"><input type="checkbox" value="'+o+'" data-ti="'+i+'">'+o+'<\/label>';
+      var isFixed=ETC_TYPES[o]==='fixed';
+      h+='<label class="etc-o"><input type="checkbox" value="'+o+'" data-ti="'+i+'">'+o+(isFixed?' <span style="font-size:10px;font-weight:700;color:var(--wn)">🔒고정</span>':'')+'<\/label>';
     });
     h+='<\/div><\/td><\/tr>';
   });
@@ -1412,8 +1492,18 @@ function calcTW(rows){
   return rows.reduce(function(total,r){
     var sm={};FIELDS.forEach(function(f){sm[f.k]=r[f.k]||0;});
     var rec=calcW(sm);
-    var etc=r['기타업무']&&r['기타업무'].trim()?Math.max(0,4-rec):0;
-    return total+rec+etc;
+    var etcList=r['기타업무']?r['기타업무'].split(',').filter(Boolean):[];
+    var hasEtc=etcList.length>0;
+    var hasFixed=etcList.some(function(v){return ETC_TYPES[v]==='fixed';});
+    var slot=rec;
+    if(hasEtc){
+      slot+=Math.max(0,SCORE_BASE-rec);      // 기타업무 체크 시 기본점수(SCORE_BASE)까지 보장
+      if(rec>0) slot+=SCORE_MULTI;           // 멀티 보너스: 정규업무(인+티~상품권)+기타업무 동시 수행
+      if(hasFixed) slot+=SCORE_FIXED;        // 고정업무 보너스(시간당)
+      slot=Math.min(SCORE_MAX,slot);         // 기타업무(고정/일반)가 있을 때만 시간대당 상한 적용
+    }
+    // 기타업무가 전혀 없으면 상한 없이 정규업무 환산점수 그대로 반영
+    return total+slot;
   },0);
 }
 
@@ -2026,13 +2116,15 @@ function loadDash(dateStr){
     monthPerfs.forEach(function(p){inputDates[p.date]=1;});
     var inputDayCnt = Object.keys(inputDates).length;
 
-    // 누적 전화처리
-    var telTotal=0,telPrev=0;
-    monthPerfs.filter(function(p){return p.date<=dateStr;}).forEach(function(p){
-      p.rows.forEach(function(r){telTotal+=r['전화처리']||0;});
+    // 누적 전화처리 (이달 1일~선택일 누적 vs 이달 1일~전날 누적 비교)
+    var telTotal=0,telPrevCum=0;
+    var prevInSameMonth = prevStr.slice(0,7)===ym;
+    monthPerfs.forEach(function(p){
+      var s=0; p.rows.forEach(function(r){s+=r['전화처리']||0;});
+      if(p.date<=dateStr) telTotal+=s;
+      if(prevInSameMonth && p.date<=prevStr) telPrevCum+=s;
     });
-    prevPerfs.forEach(function(p){p.rows.forEach(function(r){telPrev+=r['전화처리']||0;});});
-    var telDiff = telPrev>0 ? (telTotal-telPrev) : null;
+    var telDiff = prevPerfs.length ? (telTotal-telPrevCum) : null;
 
     // 야근건수: 야근 날짜 수 (중복 제거)
     var otDates={};
@@ -2638,16 +2730,23 @@ function renderAllPerfFormula(){
   var exEl=document.getElementById('allperf-formula-ex');
   if(!bodyEl) return;
   var f=function(v){return Number(v||0).toFixed(2);};
+  var rec2=W.인티추티*2;
   bodyEl.innerHTML=
     '<strong style="color:var(--tp)">기준: 인+티(+추티) 1개 = 15분 = '+f(W.인티추티)+'점</strong><br>'+
     '인+티(+추티) 1개 = <b>'+f(W.인티추티)+'pt</b> &nbsp;|&nbsp; 무선 1개 = <b>'+f(W.무선)+'pt</b> &nbsp;|&nbsp; '+
     '기가아이즈 1개 = <b>'+f(W.기가아이즈)+'pt</b> &nbsp;|&nbsp; 전화/단독 1개 = <b>'+f(W.전화단독)+'pt</b><br>'+
     '약갱 1개 = <b>'+f(W.약갱)+'pt</b> &nbsp;|&nbsp; 상품권 1개 = <b>'+f(W.상품권)+'pt</b> &nbsp;|&nbsp; '+
     '선약 1개 = <b>'+f(W.선약)+'pt</b><br>'+
-    '<span style="color:var(--wn)">⚡ 기타업무: 해당 시간대 접수 환산합계가 4pt 미만이면 (4 - 접수환산)pt 추가</span>'+
-    '<div style="font-size:11px;color:var(--tm);margin-top:6px">※ 이 가중치는 설정 탭에서 관리자가 수정할 수 있으며, 수정 즉시 여기에도 반영됩니다.</div>';
-  if(exEl) exEl.textContent='예) 인+티 2개('+f(W.인티추티*2)+'pt) + 기타업무 체크 → 4-'+f(W.인티추티*2)+'='+f(Math.max(0,4-W.인티추티*2))+'pt 추가 → 총 4pt';
+    '<span style="color:var(--wn)">⚡ 기타업무(일반): 해당 시간대 접수 환산합계가 '+f(SCORE_BASE)+'pt 미만이면 ('+f(SCORE_BASE)+' - 접수환산)pt 추가</span><br>'+
+    '<span style="color:var(--pp)">✨ 멀티 보너스: 정규업무(인+티~상품권)와 기타업무를 같은 시간대에 함께 수행하면 +'+f(SCORE_MULTI)+'pt 추가</span><br>'+
+    '<span style="color:var(--dg)">🔒 고정업무 보너스: 기타업무 중 \'고정업무\'로 분류된 항목 체크 시 시간당 +'+f(SCORE_FIXED)+'pt 추가</span><br>'+
+    '<span style="color:var(--ad)">📌 기타업무(고정/일반)가 있는 시간대는 합계가 최대 '+f(SCORE_MAX)+'pt를 넘지 않습니다. (기타업무가 없으면 상한 없이 정규업무 환산점수 그대로 반영)</span>'+
+    '<div style="font-size:11px;color:var(--tm);margin-top:6px">※ 이 가중치·상한·보너스는 설정 탭에서 관리자가 수정할 수 있으며, 수정 즉시 여기에도 반영됩니다.</div>';
+  if(exEl) exEl.innerHTML=
+    '예1) 인+티 2개('+f(rec2)+'pt) + 일반 기타업무 체크 → '+f(SCORE_BASE)+'-'+f(rec2)+'='+f(Math.max(0,SCORE_BASE-rec2))+'pt 추가 + 멀티보너스 '+f(SCORE_MULTI)+'pt → 총 '+f(Math.min(SCORE_MAX,rec2+Math.max(0,SCORE_BASE-rec2)+SCORE_MULTI))+'pt<br>'+
+    '예2) 고정업무 항목만 체크(정규업무 없음) → 기본 '+f(SCORE_BASE)+'pt + 고정업무보너스 '+f(SCORE_FIXED)+'pt → 총 '+f(Math.min(SCORE_MAX,SCORE_BASE+SCORE_FIXED))+'pt (상한 '+f(SCORE_MAX)+'pt 적용)';
 }
+
 
 function loadEmps(){
   var adminSecEl=document.getElementById('emp-section-admin');
@@ -3449,6 +3548,10 @@ document.addEventListener('DOMContentLoaded',function(){
   if(etSave) etSave.addEventListener('click',saveEmpTargets);
   var wSaveBtn=document.getElementById('weight-save-btn');
   if(wSaveBtn) wSaveBtn.addEventListener('click',saveWeights);
+  var sbSaveBtn=document.getElementById('score-bonus-save-btn');
+  if(sbSaveBtn) sbSaveBtn.addEventListener('click',saveScoreBonus);
+  var etcAddBtn=document.getElementById('etc-item-add-btn');
+  if(etcAddBtn) etcAddBtn.addEventListener('click',function(){ addEtcItemRow('','general'); });
   var ddSaveBtn=document.getElementById('dropdown-save-btn');
   if(ddSaveBtn) ddSaveBtn.addEventListener('click',saveDropdowns);
   var amSaveBtn=document.getElementById('annual-mode-save-btn');
