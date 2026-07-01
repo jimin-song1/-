@@ -415,21 +415,28 @@ table.pt td.otc{background:#FFF8F8;}
     <!-- 직원 관리 -->
     <div class="pg" id="pg-emps">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div class="cttl">직원 관리</div>
-          <input type="month" id="emps-month" style="padding:5px 8px;border:1.5px solid var(--b);border-radius:7px;font-size:13px;font-family:inherit;outline:none;background:var(--s)">
-          <button class="btn btn-se btn-sm" id="emps-month-btn">조회</button>
-        </div>
+        <div class="cttl">직원 관리</div>
         <button class="btn btn-pr btn-sm" id="add-emp-btn">+ 직원 추가</button>
       </div>
-      <!-- 등급별 섹션 -->
       <div id="emp-section-admin"></div>
-      <div id="emp-section-S"></div>
-      <div id="emp-section-A"></div>
-      <div id="emp-section-B"></div>
-      <div id="emp-section-C"></div>
-      <div id="emp-section-D"></div>
-      <div id="emp-section-nodata"></div>
+      <div id="emp-section-staff"></div>
+    </div>
+    <!-- 직원 평가 -->
+    <div class="pg" id="pg-eval">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="cttl">직원 평가</div>
+          <input type="month" id="eval-month" style="padding:5px 8px;border:1.5px solid var(--b);border-radius:7px;font-size:13px;font-family:inherit;outline:none;background:var(--s)">
+          <button class="btn btn-se btn-sm" id="eval-month-btn">조회</button>
+        </div>
+        <button class="btn btn-se btn-sm" id="eval-score-target-btn">🎯 목표 설정</button>
+      </div>
+      <div id="eval-section-S"></div>
+      <div id="eval-section-A"></div>
+      <div id="eval-section-B"></div>
+      <div id="eval-section-C"></div>
+      <div id="eval-section-D"></div>
+      <div id="eval-section-nodata"></div>
     </div>
     <!-- IP 현황 -->
     <div class="pg" id="pg-ip">
@@ -1033,6 +1040,7 @@ function showApp(){
       {id:'allperf',l:'📋 전체 실적',p:'pg-allperf'},
       {id:'cal',l:'📅 연차 달력',p:'pg-cal'},
       {id:'emps',l:'👥 직원 관리',p:'pg-emps'},
+      {id:'eval',l:'📈 직원 평가',p:'pg-eval'},
       {id:'input',l:'✏️ 실적 입력',p:'pg-input'},
       {id:'my',l:'📋 내 실적',p:'pg-my'},
       {id:'myinfo',l:'👤 내 정보',p:'pg-myinfo'},
@@ -1048,7 +1056,7 @@ function showApp(){
       initInputEmpSelector();
       refreshEmpNameMap();
       var lastTab=sessionStorage.getItem('lastTab')||'dash';
-      var validTabs=['dash','allperf','cal','emps','input','my','myinfo','seats','ip','settings'];
+      var validTabs=['dash','allperf','cal','emps','eval','input','my','myinfo','seats','ip','settings'];
       switchTab(validTabs.indexOf(lastTab)!==-1?lastTab:'dash');
     });
   } else {
@@ -1120,9 +1128,12 @@ function switchTab(id){
   if(id==='dash') loadDash(document.getElementById('dash-date').value||new Date().toISOString().slice(0,10));
   if(id==='allperf'){loadAllPerf();loadEmpFilter();renderAllPerfFormula();}
   if(id==='emps'){
-    // 20초 이내 이미 로드된 경우 스킵 (직원추가/삭제/수정 등 쓰기 작업 후에는 _loadedTabs 초기화됨)
     var now=Date.now();
-    if(!_loadedTabs.emps||now-_loadedTabs.emps>20000){ _loadedTabs.emps=now; loadEmps(); }
+    if(!_loadedTabs.emps||now-_loadedTabs.emps>30000){ _loadedTabs.emps=now; loadEmps(); }
+  }
+  if(id==='eval'){
+    var now=Date.now();
+    if(!_loadedTabs.eval||now-_loadedTabs.eval>20000){ _loadedTabs.eval=now; loadEval(); }
   }
   if(id==='seats') loadSeats();
   if(id==='ip') loadIPs();
@@ -2572,209 +2583,213 @@ function renderAllPerfFormula(){
 }
 
 function loadEmps(){
-  var monthEl=document.getElementById('emps-month');
+  var adminSecEl=document.getElementById('emp-section-admin');
+  var staffSecEl=document.getElementById('emp-section-staff');
+  if(adminSecEl) adminSecEl.innerHTML=ldg();
+  if(staffSecEl) staffSecEl.innerHTML='';
+
+  api('getAllUsers',{}).then(function(r){
+    if(!r.ok){if(adminSecEl)adminSecEl.innerHTML=alHtml(r.error,'er');return;}
+    var allEmps=r.employees;
+    var admins=sortByRank(allEmps.filter(function(e){return e.role==='admin';}),function(u){return u.name;},function(u){return u.rank;});
+    var staff=sortByRank(allEmps.filter(function(e){return e.role!=='admin'&&!e.retired;}),function(u){return u.name;},function(u){return u.rank;});
+
+    // 관리자 섹션
+    if(adminSecEl){
+      adminSecEl.innerHTML='';
+      if(admins.length){
+        var hdr=document.createElement('div');
+        hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--ppl);border-radius:8px;border-left:4px solid var(--pp)';
+        hdr.innerHTML='<span style="font-size:13px;font-weight:700;color:var(--pp)">👑 관리자<\/span><span style="font-size:12px;color:var(--pp);opacity:.7">'+admins.length+'명<\/span>';
+        adminSecEl.appendChild(hdr);
+        var grid=document.createElement('div'); grid.className='emp-grid'; grid.style.marginBottom='18px';
+        admins.forEach(function(e){ grid.appendChild(makeEmpCard(e,true)); });
+        adminSecEl.appendChild(grid);
+      }
+    }
+
+    // 직원 섹션 (퇴사자 제외, 직급순)
+    if(staffSecEl){
+      staffSecEl.innerHTML='';
+      if(staff.length){
+        var hdr2=document.createElement('div');
+        hdr2.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--al);border-radius:8px;border-left:4px solid var(--ac)';
+        hdr2.innerHTML='<span style="font-size:13px;font-weight:700;color:var(--ad)">👤 직원<\/span><span style="font-size:12px;color:var(--ad);opacity:.7">'+staff.length+'명<\/span>';
+        staffSecEl.appendChild(hdr2);
+        var grid2=document.createElement('div'); grid2.className='emp-grid'; grid2.style.marginBottom='18px';
+        staff.forEach(function(e){ grid2.appendChild(makeEmpCard(e,false)); });
+        staffSecEl.appendChild(grid2);
+      }
+    }
+  });
+}
+
+function makeEmpCard(e, isAdmin){
+  var card=document.createElement('div');
+  card.className='card'; card.style.cursor='pointer';
+  var color=isAdmin?(e.color||'#534AB7'):(e.color||'#3B6FE8');
+  var badge=isAdmin?'<span class="bdg b-p" style="margin-left:6px">관리자<\/span>':'';
+  card.innerHTML=
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">'+
+      '<div style="width:42px;height:42px;border-radius:50%;background:'+color+';display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;flex-shrink:0">'+e.name[0]+'<\/div>'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:14px;font-weight:600">'+e.name+badge+'<\/div>'+
+        '<div style="font-size:12px;color:var(--tm)"><code>'+e.id+'<\/code> · '+(e.rank||'-')+' · '+(e.team||'-')+'<\/div>'+
+      '<\/div>'+
+    '<\/div>'+
+    '<div style="font-size:12px;color:var(--ts);display:flex;gap:10px;flex-wrap:wrap">'+
+      '<span>📅 '+(e.hire||'-')+'<\/span><span>📱 '+(e.phone||'-')+'<\/span>'+
+    '<\/div>';
+  card.addEventListener('click',function(){openEmpD(e.id);});
+  return card;
+}
+
+// ── 직원 평가 ─────────────────────────────────
+function loadEval(){
+  var monthEl=document.getElementById('eval-month');
   if(monthEl&&!monthEl.value) monthEl.value=new Date().toISOString().slice(0,7);
   var ym=monthEl?monthEl.value:new Date().toISOString().slice(0,7);
 
-  var adminSecEl=document.getElementById('emp-section-admin');
-  if(adminSecEl&&!adminSecEl.innerHTML.trim()) adminSecEl.innerHTML=ldg();
+  var sectionKeys=['S','A','B','C','D','nodata'];
+  sectionKeys.forEach(function(k){
+    var el=document.getElementById('eval-section-'+k);
+    if(el){ if(el.innerHTML.trim()) el.style.opacity='0.45'; else el.innerHTML=ldg(); }
+  });
 
-  // 관리자: 먼저 고정 렌더링 (달 조회 무관)
-  api('getAllUsers',{}).then(function(r){
-    if(!r.ok){document.getElementById('emp-section-admin').innerHTML=alHtml(r.error,'er');return;}
-    var allEmps=r.employees;
-    var admins=sortByRank(allEmps.filter(function(e){return e.role==='admin';}),function(u){return u.name;},function(u){return u.rank;});
-    var normalEmps=allEmps.filter(function(e){return e.role!=='admin';});
+  Promise.all([api('getAllUsers',{}), api('getPerfs',{ym:ym})]).then(function(rs){
+    var allEmps=rs[0].ok?rs[0].employees:[];
+    var normalEmps=sortByRank(
+      allEmps.filter(function(e){return e.role!=='admin'&&!e.retired;}),
+      function(u){return u.name;},function(u){return u.rank;}
+    );
+    var perfs=rs[1].ok?rs[1].perfs:[];
 
-    // 관리자 섹션 즉시 고정 렌더링
-    var adminEl=document.getElementById('emp-section-admin');
-    adminEl.innerHTML='';
-    if(admins.length){
-      var hdr=document.createElement('div');
-      hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--ppl);border-radius:8px;border-left:4px solid var(--pp)';
-      hdr.innerHTML='<span style="font-size:13px;font-weight:700;color:var(--pp)">👑 관리자<\/span><span style="font-size:12px;color:var(--pp);opacity:.7">'+admins.length+'명<\/span><span style="font-size:11px;color:var(--tm);margin-left:auto">달 조회 무관 고정<\/span>';
-      adminEl.appendChild(hdr);
-      var grid=document.createElement('div');
-      grid.className='emp-grid'; grid.style.marginBottom='18px';
-      admins.forEach(function(e){
-        var card=document.createElement('div');
-        card.className='card'; card.style.cursor='pointer';
-        card.innerHTML=
-          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">'+
-            '<div style="width:42px;height:42px;border-radius:50%;background:'+(e.color||'#534AB7')+';display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;flex-shrink:0">'+e.name[0]+'<\/div>'+
-            '<div style="flex:1;min-width:0">'+
-              '<div style="font-size:14px;font-weight:600">'+e.name+'<span class="bdg b-p" style="margin-left:6px">관리자<\/span><\/div>'+
-              '<div style="font-size:12px;color:var(--tm)"><code>'+e.id+'<\/code> · '+(e.rank||'-')+' · '+(e.team||'-')+'<\/div>'+
-            '<\/div>'+
-          '<\/div>'+
-          '<div style="font-size:12px;color:var(--ts);display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">'+
-            '<span>📅 '+(e.hire||'-')+'<\/span><span>📱 '+(e.phone||'-')+'<\/span>'+
-          '<\/div>';
-        card.addEventListener('click',function(){openEmpD(e.id);});
-        grid.appendChild(card);
-      });
-      adminEl.appendChild(grid);
-    }
+    var today=new Date().toISOString().slice(0,10);
+    var endOfMonth=ym+'-'+new Date(parseInt(ym.slice(0,4)),parseInt(ym.slice(5,7)),0).getDate().toString().padStart(2,'0');
+    var endDate=endOfMonth<today?endOfMonth:today;
+    var biz=countBizDays(ym,endDate)||1;
 
-    // 일반 직원: 선택한 달 실적 기준 등급별 렌더링
-    // (이전 화면을 바로 지우지 않고 살짝 흐리게 유지 → 조회 시 화면이 순간적으로 비는 깜빡임 방지)
-    ['S','A','B','C','D','nodata'].forEach(function(k){
-      var el=document.getElementById('emp-section-'+k);
-      if(!el) return;
-      if(el.innerHTML.trim()) el.style.opacity='0.45';
-      else el.innerHTML=ldg();
+    // 직원별 환산점수 + 접수건수 집계
+    var scoreMap={}, countMap={};
+    perfs.filter(function(p){return p.date<=endDate;}).forEach(function(p){
+      var tw=calcTW(p.rows);
+      scoreMap[p.empId]=(scoreMap[p.empId]||0)+tw;
+      var cnt=0;
+      p.rows.forEach(function(r){cnt+=(r['인티추티']||0)+(r['단독']||0)+(r['약갱']||0)+(r['무선']||0);});
+      countMap[p.empId]=(countMap[p.empId]||0)+cnt;
     });
-    function showEmpSectionsError(msg){
-      ['S','A','B','C','D','nodata'].forEach(function(k){
-        var el=document.getElementById('emp-section-'+k);
-        if(el){ el.style.opacity='1'; el.innerHTML=alHtml(msg+' <button class="btn btn-se btn-xs" onclick="loadEmps()" style="margin-left:8px">다시 시도</button>','er'); }
-      });
-    }
-    var timeoutP=new Promise(function(resolve){ setTimeout(function(){resolve({ok:false,error:'응답 시간 초과(10초).'});},10000); });
-    Promise.race([api('getPerfs',{ym:ym}),timeoutP]).then(function(pr){
-      if(!pr||!pr.ok){
-        // 실적 데이터 없어도 직원 목록은 직급순으로 보여줌 (실적 없음 섹션에 전부 표시)
-        ['S','A','B','C','D'].forEach(function(k){var el=document.getElementById('emp-section-'+k);if(el){el.innerHTML='';el.style.opacity='1';}});
-        var nodataEl=document.getElementById('emp-section-nodata');
-        if(nodataEl){
-          nodataEl.style.opacity='1';
-          var sorted=sortByRank(normalEmps,function(u){return u.name;},function(u){return u.rank;});
-          if(sorted.length){
-            var hdr=document.createElement('div');
-            hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg);border-radius:8px;border-left:4px solid var(--tm)';
-            hdr.innerHTML='<span style="font-size:13px;font-weight:700;color:var(--tm)">👥 직원<\/span><span style="font-size:12px;color:var(--tm);opacity:.7">'+sorted.length+'명<\/span><span style="font-size:11px;color:var(--wn);margin-left:auto">실적 데이터 미조회<\/span>';
-            nodataEl.innerHTML='';
-            nodataEl.appendChild(hdr);
-            var grid=document.createElement('div'); grid.className='emp-grid'; grid.style.marginBottom='18px';
-            sorted.forEach(function(e){
-              var card=document.createElement('div'); card.className='card'; card.style.cursor='pointer';
-              var retiredBadge=e.retired?'<span class="bdg b-gr" style="margin-left:6px">퇴사<\/span>':'';
-              card.innerHTML='<div style="display:flex;align-items:center;gap:12px"><div style="width:42px;height:42px;border-radius:50%;background:'+(e.color||'#9CA3AF')+';display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;flex-shrink:0">'+e.name[0]+'<\/div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">'+e.name+retiredBadge+'<\/div><div style="font-size:12px;color:var(--tm)"><code>'+e.id+'<\/code> · '+(e.rank||'-')+' · '+(e.team||'-')+'<\/div><\/div><\/div>';
-              card.addEventListener('click',function(){openEmpD(e.id);});
-              grid.appendChild(card);
-            });
-            nodataEl.appendChild(grid);
-          } else { nodataEl.innerHTML=''; }
-        }
-        return;
-      }
-      try {
-      var allPerfs = pr.perfs;
-      var monthPerfs=allPerfs.filter(function(p){return p.date.indexOf(ym)===0;});
-      var today=new Date().toISOString().slice(0,10);
-      var endOfMonth=ym+'-'+new Date(parseInt(ym.slice(0,4)),parseInt(ym.slice(5,7)),0).getDate().toString().padStart(2,'0');
-      var endDate=endOfMonth<today?endOfMonth:today;
-      var biz=countBizDays(ym,endDate)||1;
 
-      var scoreMap={};
-      monthPerfs.forEach(function(p){
-        scoreMap[p.empId]=(scoreMap[p.empId]||0)+calcTW(p.rows);
-      });
+    var groups={S:[],A:[],B:[],C:[],D:[],nodata:[]};
+    normalEmps.forEach(function(e){
+      var pt=scoreMap[e.id]||0;
+      var hasData=scoreMap[e.id]!==undefined;
+      if(!hasData){groups.nodata.push({e:e,pt:0,cnt:0,gr:null});return;}
+      var gr=getMonthGrade(pt,biz);
+      groups[gr.g].push({e:e,pt:pt,cnt:countMap[e.id]||0,gr:gr});
+    });
+    ['S','A','B','C','D'].forEach(function(g){groups[g].sort(function(a,b){return b.pt-a.pt;});});
+    groups.nodata.sort(function(a,b){
+      var ri=rankIdx(a.e.rank)-rankIdx(b.e.rank);
+      return ri!==0?-ri:(a.e.name||'').localeCompare(b.e.name||'');
+    });
 
-      var groups={S:[],A:[],B:[],C:[],D:[],nodata:[]};
-      normalEmps.forEach(function(e){
-        var pt=scoreMap[e.id]||0;
-        var hasData=scoreMap[e.id]!==undefined;
-        if(!hasData){groups.nodata.push({e:e,pt:0,gr:null});return;}
-        var gr=getMonthGrade(pt,biz);
-        groups[gr.g].push({e:e,pt:pt,gr:gr});
-      });
-      ['S','A','B','C','D'].forEach(function(g){
-        groups[g].sort(function(a,b){return b.pt-a.pt;}); // 등급 내 환산점수 높은 순
-      });
-      // 실적 없음 그룹은 직급 내림차순 → 동일 직급이면 이름 오름차순
-      groups.nodata.sort(function(a,b){
-        var ri=rankIdx(a.e.rank)-rankIdx(b.e.rank);
-        if(ri!==0) return -ri; // 내림차순
-        return (a.e.name||'').localeCompare(b.e.name||'');
-      });
-
-      var sectionDefs=[
-        {key:'S',     label:'🏆 S 등급', color:'#534AB7',  bg:'#EEEDFE'},
-        {key:'A',     label:'🥇 A 등급', color:'#1D9E75',  bg:'#E1F5EE'},
-        {key:'B',     label:'🥈 B 등급', color:'#3B6FE8',  bg:'#EEF3FD'},
-        {key:'C',     label:'🥉 C 등급', color:'#BA7517',  bg:'#FAEEDA'},
-        {key:'D',     label:'📉 D 등급', color:'#A32D2D',  bg:'#FCEBEB'},
-        {key:'nodata',label:'📋 실적 없음', color:'var(--tm)', bg:'var(--bg)'}
-      ];
+    var sectionDefs=[
+      {key:'S',label:'🏆 S 등급',color:'#534AB7',bg:'#EEEDFE'},
+      {key:'A',label:'🥇 A 등급',color:'#1D9E75',bg:'#E1F5EE'},
+      {key:'B',label:'🥈 B 등급',color:'#3B6FE8',bg:'#EEF3FD'},
+      {key:'C',label:'🥉 C 등급',color:'#BA7517',bg:'#FAEEDA'},
+      {key:'D',label:'📉 D 등급',color:'#A32D2D',bg:'#FCEBEB'},
+      {key:'nodata',label:'📋 실적 없음',color:'var(--tm)',bg:'var(--bg)'}
+    ];
 
     sectionDefs.forEach(function(sec){
       var list=groups[sec.key];
-      var el=document.getElementById('emp-section-'+sec.key);
-      if(!el||!list.length){if(el){el.innerHTML='';el.style.opacity='1';}return;}
+      var el=document.getElementById('eval-section-'+sec.key);
+      if(!el) return;
       el.style.opacity='1';
+      if(!list.length){el.innerHTML='';return;}
 
-      // 섹션 헤더
       var hdr=document.createElement('div');
       hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:'+sec.bg+';border-radius:8px;border-left:4px solid '+sec.color;
       hdr.innerHTML='<span style="font-size:13px;font-weight:700;color:'+sec.color+'">'+sec.label+'<\/span>'+
-        '<span style="font-size:12px;color:'+sec.color+';opacity:.7">'+list.length+'명<\/span>';
-      if(sec.key!=='admin'&&sec.key!=='nodata'){
-        hdr.innerHTML+='<span style="font-size:11px;color:var(--tm);margin-left:auto">'+ym+' · 영업일 '+biz+'일 기준 일평균<\/span>';
-      }
+        '<span style="font-size:12px;color:'+sec.color+';opacity:.7">'+list.length+'명<\/span>'+
+        (sec.key!=='nodata'?'<span style="font-size:11px;color:var(--tm);margin-left:auto">'+ym+' · 영업일 '+biz+'일 기준<\/span>':'');
+      el.innerHTML='';
       el.appendChild(hdr);
 
-      // 카드 그리드
       var grid=document.createElement('div');
-      grid.className='emp-grid';
-      grid.style.marginBottom='18px';
-
+      grid.className='emp-grid'; grid.style.marginBottom='18px';
       list.forEach(function(item){
-        var e=item.e, pt=item.pt, gr=item.gr;
+        var e=item.e, pt=item.pt, cnt=item.cnt, gr=item.gr;
         var card=document.createElement('div');
         card.className='card'; card.style.cursor='pointer';
-
-        // 아바타: 등급 색 + 가운데 등급 문자 (관리자/실적없음은 이름 첫글자)
-        var avatarBg, avatarText, avatarFontSize;
-        if(gr){
-          avatarBg=gr.c;
-          avatarText=gr.g;
-          avatarFontSize='15px';
-        } else {
-          avatarBg=e.color||'#9CA3AF';
-          avatarText=e.name[0];
-          avatarFontSize='16px';
+        var avatarBg=gr?gr.c:(e.color||'#9CA3AF');
+        var avatarText=gr?gr.g:e.name[0];
+        var avg=biz>0?(pt/biz).toFixed(1):'0.0';
+        var tgt=EMP_SCORE_TARGETS[e.id];
+        var tgtHtml='';
+        if(tgt){
+          var mTgt=tgt*biz;
+          var pct=mTgt>0?Math.min(Math.round(pt/mTgt*100),999):0;
+          var col=pct>=100?'var(--ok)':pct>=70?'var(--wn)':'var(--dg)';
+          tgtHtml='<div style="margin-top:6px"><div style="font-size:11px;color:var(--tm);margin-bottom:2px">목표 달성률</div>'+
+            '<div class="cb" style="height:6px;margin-bottom:2px"><div class="cf" style="width:'+Math.min(pct,100)+'%;background:'+col+';height:6px"><\/div><\/div>'+
+            '<div style="font-size:11px;font-weight:700;color:'+col+'">'+pt.toFixed(1)+'\/'+mTgt.toFixed(1)+'pt · '+pct+'%<\/div><\/div>';
         }
-
-        var adminBadge=e.role==='admin'?'<span class="bdg b-p" style="margin-left:6px">관리자<\/span>':'';
-        var retiredBadge=e.retired?'<span class="bdg b-gr" style="margin-left:6px">퇴사<\/span>':'';
-        var scoreLine='';
-        if(pt!==null&&gr){
-          var avg=(biz>0?pt/biz:0).toFixed(1);
-          scoreLine='<div style="display:flex;align-items:center;gap:6px;margin-top:6px">'+
+        var scoreLine=gr?
+          '<div style="display:flex;gap:8px;margin-top:5px;align-items:center">'+
             '<span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;background:'+gr.bg+';color:'+gr.c+'">'+gr.g+'등급<\/span>'+
             '<span style="font-size:11px;color:var(--tm)">합계 <b style="color:var(--tp)">'+pt.toFixed(1)+'pt<\/b> · 일평균 <b style="color:var(--tp)">'+avg+'pt<\/b><\/span>'+
-          '<\/div>';
-        }
-
+            '<span style="font-size:11px;color:var(--tm)">· 접수 <b style="color:var(--tp)">'+cnt+'건<\/b><\/span>'+
+          '<\/div>':'';
         card.innerHTML=
-          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">'+
-            '<div style="width:42px;height:42px;border-radius:50%;background:'+avatarBg+';display:flex;align-items:center;justify-content:center;font-size:'+avatarFontSize+';font-weight:800;color:#fff;flex-shrink:0;box-shadow:0 2px 6px '+avatarBg+'66">'+avatarText+'<\/div>'+
+          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">'+
+            '<div style="width:42px;height:42px;border-radius:50%;background:'+avatarBg+';display:flex;align-items:center;justify-content:center;font-size:'+(gr?'15px':'16px')+';font-weight:800;color:#fff;flex-shrink:0;box-shadow:0 2px 6px '+avatarBg+'66">'+avatarText+'<\/div>'+
             '<div style="flex:1;min-width:0">'+
-              '<div style="font-size:14px;font-weight:600">'+e.name+adminBadge+retiredBadge+'<\/div>'+
-              '<div style="font-size:12px;color:var(--tm)"><code>'+e.id+'<\/code> · '+(e.rank||'-')+' · '+(e.team||'-')+'<\/div>'+
+              '<div style="font-size:14px;font-weight:600">'+e.name+'<\/div>'+
+              '<div style="font-size:12px;color:var(--tm)">'+(e.rank||'-')+' · '+(e.team||'-')+'<\/div>'+
             '<\/div>'+
-          '<\/div>'+
-          scoreLine+
-          '<div style="font-size:12px;color:var(--ts);display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">'+
-            '<span>📅 '+(e.hire||'-')+'<\/span><span>📱 '+(e.phone||'-')+'<\/span>'+
-          '<\/div>';
-
-        card.addEventListener('click',function(){openEmpD(e.id);});
+          '<\/div>'+scoreLine+tgtHtml;
+        card.addEventListener('click',function(){openEvalDetail(e,ym,pt,cnt,biz,gr);});
         grid.appendChild(card);
       });
-
       el.appendChild(grid);
-    });
-
-      } catch(err){
-        showEmpSectionsError('직원 등급 표시 중 오류가 발생했습니다: '+err.message);
-      }
-    }).catch(function(err){
-      showEmpSectionsError('실적 데이터를 불러오지 못했습니다: '+(err&&err.message?err.message:err));
     });
   });
 }
+
+// 직원 평가 상세 팝업 (모달 재활용)
+function openEvalDetail(e, ym, pt, cnt, biz, gr){
+  var avg=biz>0?(pt/biz).toFixed(1):'0.0';
+  var tgt=EMP_SCORE_TARGETS[e.id];
+  var tgtLine='';
+  if(tgt){
+    var mTgt=tgt*biz;
+    var pct=mTgt>0?Math.min(Math.round(pt/mTgt*100),999):0;
+    var col=pct>=100?'var(--ok)':pct>=70?'var(--wn)':'var(--dg)';
+    tgtLine='<div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:8px">'+
+      '<div style="font-size:12px;font-weight:600;color:var(--ts);margin-bottom:6px">목표 달성률</div>'+
+      '<div class="cb" style="margin-bottom:4px"><div class="cf" style="width:'+Math.min(pct,100)+'%;background:'+col+'"><\/div><\/div>'+
+      '<div style="font-size:13px;font-weight:700;color:'+col+'">'+pt.toFixed(1)+' \/ '+mTgt.toFixed(1)+'pt ('+pct+'%)<\/div>'+
+      '<div style="font-size:11px;color:var(--tm);margin-top:2px">일별 목표 '+tgt+'pt × 영업일 '+biz+'일<\/div><\/div>';
+  }
+  var grBadge=gr?'<span style="font-size:13px;font-weight:700;padding:3px 12px;border-radius:20px;background:'+gr.bg+';color:'+gr.c+'">'+gr.g+'등급<\/span>':'<span style="font-size:13px;color:var(--tm)">실적 없음<\/span>';
+  document.getElementById('empd-ttl').textContent=e.name+' · '+ym+' 평가';
+  document.getElementById('empd-body').innerHTML=
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'+grBadge+'<\/div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">'+
+      '<div class="sc sc-a"><div class="sv" style="font-size:20px">'+pt.toFixed(1)+'<\/div><div class="sl">환산점수(pt)<\/div><\/div>'+
+      '<div class="sc sc-o"><div class="sv" style="font-size:20px">'+avg+'<\/div><div class="sl">일평균 pt<\/div><\/div>'+
+      '<div class="sc sc-p"><div class="sv" style="font-size:20px">'+cnt+'<\/div><div class="sl">접수 건수<\/div><\/div>'+
+    '<\/div>'+
+    tgtLine;
+  // 저장/퇴사 버튼 숨김, 닫기만
+  document.getElementById('empd-ok').style.display='none';
+  document.getElementById('empd-del').style.display='none';
+  document.getElementById('empd-retire').style.display='none';
+  openM('m-empd');
+}
+
 
 var _editEmpId=null;
 function openEmpD(id){
@@ -2876,7 +2891,7 @@ function saveEmpFromModal(){
     api('saveSettings',{EMP_SCORE_TARGETS:newMap}).then(function(){
       EMP_SCORE_TARGETS=newMap;
       closeM('m-empd');
-      refreshEmpNameMap(function(){_loadedTabs.emps=0;loadEmps();});
+      refreshEmpNameMap(function(){_loadedTabs.emps=0;_loadedTabs.eval=0;loadEmps();});
     });
   });
 }
@@ -2899,7 +2914,7 @@ function retireEmpFromModal(){
       addLog(oldName+' → '+newName+' 퇴사 처리');
       _empNameById[_editEmpId]=newName;
       closeM('m-empd');
-      refreshEmpNameMap(function(){_loadedTabs.emps=0;loadEmps();});
+      refreshEmpNameMap(function(){_loadedTabs.emps=0;_loadedTabs.eval=0;loadEmps();});
     });
   });
 }
@@ -2913,7 +2928,7 @@ function deleteEmpFromModal(){
   if(!confirm('이 직원을 삭제하시겠습니까?')) return;
   var delName=curUser?curUser.name:_editEmpId;
   api('deleteEmployee',{id:_editEmpId}).then(function(res){
-    if(res.ok){addLog(delName+' 직원 삭제');closeM('m-empd');_loadedTabs.emps=0;loadEmps();}
+    if(res.ok){addLog(delName+' 직원 삭제');closeM('m-empd');_loadedTabs.emps=0;_loadedTabs.eval=0;loadEmps();}
     else alert(res.error||'삭제 실패');
   });
 }
@@ -2944,7 +2959,7 @@ function addEmp(){
   api('addEmployee',{emp:emp}).then(function(res){
     if(res.ok){
       addLog(emp.name+' 직원 추가'+(isAdmin?' (관리자)':''));
-      closeM('m-addemp');_loadedTabs.emps=0;loadEmps();
+      closeM('m-addemp');_loadedTabs.emps=0;_loadedTabs.eval=0;loadEmps();
     } else alert(res.error||'추가 실패');
   });
 }
@@ -3208,15 +3223,23 @@ document.addEventListener('DOMContentLoaded',function(){
   if(mwp) mwp.addEventListener('click',function(){moveMyWeek(-1);});
   if(mwn) mwn.addEventListener('click',function(){moveMyWeek(1);});
   document.getElementById('add-emp-btn').addEventListener('click',openAddEmp);
-  var empMonthBtn=document.getElementById('emps-month-btn');
-  if(empMonthBtn) empMonthBtn.addEventListener('click',loadEmps);
+  var evalMonthBtn=document.getElementById('eval-month-btn');
+  if(evalMonthBtn) evalMonthBtn.addEventListener('click',function(){_loadedTabs.eval=0;loadEval();});
+  var evalScoreBtn=document.getElementById('eval-score-target-btn');
+  if(evalScoreBtn) evalScoreBtn.addEventListener('click',openEmpScoreTargets);
   document.getElementById('addemp-cancel').addEventListener('click',function(){closeM('m-addemp');});
   document.getElementById('addemp-ok').addEventListener('click',addEmp);
   // 관리자 체크박스 → 비밀번호 힌트 변경
   document.getElementById('ne-admin').addEventListener('change',function(){
     document.getElementById('ne-pw-hint').textContent=this.checked?'(필수)':'(선택)';
   });
-  document.getElementById('empd-cancel').addEventListener('click',function(){closeM('m-empd');});
+  document.getElementById('empd-cancel').addEventListener('click',function(){
+    // 평가 상세에서 숨겼던 버튼 복원
+    document.getElementById('empd-ok').style.display='';
+    document.getElementById('empd-del').style.display='';
+    document.getElementById('empd-retire').style.display='';
+    closeM('m-empd');
+  });
   document.getElementById('empd-ok').addEventListener('click',saveEmpFromModal);
   document.getElementById('empd-retire').addEventListener('click',retireEmpFromModal);
   document.getElementById('empd-del').addEventListener('click',deleteEmpFromModal);
