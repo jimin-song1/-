@@ -249,7 +249,10 @@ table.pt td.otc{background:#FFF8F8;}
       <div class="card">
         <div class="chd">
           <div class="cttl">내 실적 기록</div>
-          <div class="fbar" style="margin-bottom:0"><input type="date" id="mys"><span style="color:var(--tm);font-size:13px">~</span><input type="date" id="mye"><button class="btn btn-se btn-sm" id="my-q-btn">조회</button></div>
+          <div class="fbar" style="margin-bottom:0">
+            <input type="month" id="mym" style="padding:7px 11px;border:1.5px solid var(--b);border-radius:8px;font-size:13px;font-family:inherit;outline:none;background:var(--bg)">
+            <button class="btn btn-se btn-sm" id="my-q-btn">조회</button>
+          </div>
         </div>
         <div id="my-body"></div>
       </div>
@@ -362,6 +365,28 @@ table.pt td.otc{background:#FFF8F8;}
             <span id="dash-annual-more" style="display:none;font-size:12px;color:var(--ac);cursor:pointer;text-decoration:underline" onclick="switchTab('cal')">연차 달력 전체보기 ▶</span>
           </div>
           <div id="dash-annual"><div class="empty"><p>연차자 없음</p></div></div>
+        </div>
+      </div>
+      <!-- 직원별 개인 목표 달성률 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div class="card">
+          <div class="chd" style="margin-bottom:4px">
+            <div>
+              <div class="cttl">일일 직원별 목표달성률</div>
+              <div class="csub">환산점수 기준 · 개인 일별 목표 대비</div>
+            </div>
+            <button class="btn btn-se btn-xs" id="dash-score-target-btn" style="display:none">🎯 목표 설정</button>
+          </div>
+          <div id="dash-daily-score-rate" style="margin-top:12px"></div>
+        </div>
+        <div class="card">
+          <div class="chd" style="margin-bottom:4px">
+            <div>
+              <div class="cttl">월 누적 목표달성률</div>
+              <div class="csub" id="dash-month-score-sub">환산점수 기준 · 일별목표 × 영업일(연차제외)</div>
+            </div>
+          </div>
+          <div id="dash-month-score-rate" style="margin-top:12px"></div>
         </div>
       </div>
       <!-- 변경 로그 -->
@@ -653,6 +678,8 @@ table.pt td.otc{background:#FFF8F8;}
 </div>
 
 <script>
+
+var CHART_COLORS=['#3B6FE8','#1D9E75','#BA7517','#534AB7','#A32D2D','#0E7490','#B45309','#15803D','#9333EA','#C2410C'];
 
 // ── 상수 ──────────────────────────────────────
 var TIMES=['10시','11시','12시','13시','14시','15시','16시','17시','18시','19.5시','19시','20.5시','20시'];
@@ -1013,7 +1040,7 @@ function showApp(){
       {id:'ip',l:'🌐 IP 현황',p:'pg-ip'},
       {id:'settings',l:'⚙️ 설정',p:'pg-settings'}
     ]);
-    setMR('fs','fe2'); setMR('mys','mye'); setToday();
+    setMR('fs','fe2'); setMYM(); setToday();
     var ddEl=document.getElementById('dash-date');
     if(ddEl) ddEl.value=new Date().toISOString().slice(0,10);
     loadGlobalSettings(function(){
@@ -1035,7 +1062,7 @@ function showApp(){
       {id:'ip',l:'🌐 IP 현황',p:'pg-ip'}
     ]);
     // 설정 탭은 직원에게 숨김
-    setMR('mys','mye'); setToday();
+    setMYM(); setToday();
     loadGlobalSettings(function(){
       buildPerfTable();
       initInputEmpSelector();
@@ -1342,6 +1369,38 @@ function calcAttend(idxs){
   return s;
 }
 
+// 연차 신청 정보를 포함한 근태 계산 (조퇴 감지)
+// OT_IDX=9, 정규 마지막 슬롯=8(18시)
+function calcAttendWithLeave(filled, annRecord){
+  if(filled.length===0) return '연차';
+
+  var norm=filled.filter(function(i){return i<OT_IDX;});
+  var ot=filled.filter(function(i){return i>=OT_IDX;});
+  var last=norm.length?Math.max.apply(null,norm):-1;
+  var first=norm.length?Math.min.apply(null,norm):99;
+
+  // 연차/반차 신청이 있으면 기존 로직 그대로 (조퇴 판단 안 함)
+  if(annRecord) return calcAttend(filled);
+
+  // 반차 판단 (기존 로직)
+  var s='정상';
+  if(last<=4&&first<=2) s='오후반차';
+  else if(first>=5) s='오전반차';
+  else if(last<7) s='오후반반차';
+  else if(first>=2&&first<=4) s='오전반반차';
+
+  // 조퇴 판단: 정상근무인데 마지막 입력이 18시(인덱스 8) 미만이면 조퇴
+  // 단, 야근 슬롯 입력 있으면 조퇴 아님
+  if(s==='정상' && !ot.length && last<8 && last>=0){
+    var lastTime=TIMES[last]; // 예: '17시'
+    if(ot.length) return '야근('+ot.map(function(i){return TIMES[i];}).join(',')+')'
+    return '조퇴('+lastTime+')';
+  }
+
+  if(ot.length) return s==='정상'?'야근('+ot.map(function(i){return TIMES[i];}).join(',')+')':(s+'+야근');
+  return s;
+}
+
 function submitPerf(){
   var date=document.getElementById('pd').value;
   if(!date){showAl('i-al','날짜를 선택하세요.','er');return;}
@@ -1361,18 +1420,25 @@ function submitPerf(){
     if(FIELDS.reduce(function(s,f){return s+r[f.k];},0)>0||r['기타업무']) acc.push(i);
     return acc;
   },[]);
-  var attend=filled.length===0?'연차':calcAttend(filled);
-  var rec={empId:target.id,empName:target.name,date:date,rows:rows,attendStatus:attend,savedAt:new Date().toISOString()};
+
   document.getElementById('sv-btn').textContent='저장 중...';
-  api('savePerf',{r:rec}).then(function(res){
-    document.getElementById('sv-btn').textContent='💾 저장';
-    if(res.ok){
-      showAl('i-al','✅ '+date+' 실적이 '+(isEdit?'수정':'저장')+'되었습니다! (근태: '+attend+')','ok');
-      _curPerfId=target.id+'|'+date;
-      document.getElementById('ebdg').style.display='inline-block';
-      document.getElementById('del-btn').style.display='inline-flex';
-      document.getElementById('psub').textContent='⚠️ 이미 입력된 실적이 있습니다. 수정 후 저장하면 덮어씁니다.';
-    } else showAl('i-al',res.error||'저장 실패','er');
+
+  // 연차 정보 가져와서 조퇴 여부 최종 판단
+  api('getAnnuals',{ym:date.slice(0,7)}).then(function(annRes){
+    var dayAnn=(annRes.ok?annRes.annuals:[]).find(function(a){return a.empId===target.id&&a.date===date;});
+    var attend=calcAttendWithLeave(filled,dayAnn);
+
+    var rec={empId:target.id,empName:target.name,date:date,rows:rows,attendStatus:attend,savedAt:new Date().toISOString()};
+    api('savePerf',{r:rec}).then(function(res){
+      document.getElementById('sv-btn').textContent='💾 저장';
+      if(res.ok){
+        showAl('i-al','✅ '+date+' 실적이 '+(isEdit?'수정':'저장')+'되었습니다! (근태: '+attend+')','ok');
+        _curPerfId=target.id+'|'+date;
+        document.getElementById('ebdg').style.display='inline-block';
+        document.getElementById('del-btn').style.display='inline-flex';
+        document.getElementById('psub').textContent='⚠️ 이미 입력된 실적이 있습니다. 수정 후 저장하면 덮어씁니다.';
+      } else showAl('i-al',res.error||'저장 실패','er');
+    });
   });
 }
 
@@ -1917,7 +1983,7 @@ function loadDash(dateStr){
       '<div class="sc sc-d"><div class="sv">'+otCnt+'<\/div><div class="sl">야근 건수<\/div><\/div>'+
       '<div class="sc sc-p" style="min-width:180px"><div class="sl" style="margin-bottom:6px">당일 연차자</div>'+annHtml+'<\/div>';
 
-    // ── 일일 달성률 ────────────────────────────
+    // ── 일일 달성률 (전체 합산 기준) ──────────────
     var dayRateEl = document.getElementById('dash-daily-rate');
     dayRateEl.innerHTML = '';
     if(isOffDay(dateStr)){
@@ -1925,51 +1991,32 @@ function loadDash(dateStr){
     } else if(!dayPerfs.length){
       dayRateEl.innerHTML = '<div class="empty" style="padding:16px"><p>'+dateStr+' 실적 없음<\/p><\/div>';
     } else {
-      var empDay={};
+      // 전체 직원 합산
+      var totalMain=0, totalWire=0;
       dayPerfs.forEach(function(p){
-        if(!empDay[p.empId]) empDay[p.empId]={인티추티:0,단독:0,약갱:0,전화:0,무선:0,empId:p.empId,name:dispName(p.empId,p.empName)};
         p.rows.forEach(function(r){
-          empDay[p.empId].인티추티+=r['인티추티']||0;
-          empDay[p.empId].단독+=r['단독']||0;
-          empDay[p.empId].약갱+=r['약갱']||0;
-          empDay[p.empId].전화+=r['전화']||0;
-          empDay[p.empId].무선+=r['무선']||0;
+          totalMain+=(r['인티추티']||0)+(r['단독']||0)+(r['약갱']||0);
+          totalWire+=r['무선']||0;
         });
       });
-      Object.keys(empDay).forEach(function(eid){
-        var d=empDay[eid];
-        var n=d.name;
-        var tgt=getEmpDailyTarget(d.empId);
-        var mainTotal=d.인티추티+d.단독+d.약갱;
-        var pMain=Math.min(Math.round(mainTotal/tgt.achieve*100),999);
-        var pWire=Math.min(Math.round(d.무선/tgt.wireless*100),999);
-        var colM=pMain>=100?'var(--ok)':pMain>=70?'var(--wn)':'var(--dg)';
-        var colW=pWire>=100?'var(--ok)':pWire>=70?'var(--wn)':'var(--dg)';
-        var row=document.createElement('div');
-        row.style.cssText='margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--b)';
-        row.innerHTML=
-          '<div style="font-size:13px;font-weight:600;margin-bottom:8px">'+n+'<\/div>'+
-          '<div class="cr" style="margin-bottom:3px">'+
-            '<div style="font-size:12px;color:var(--ts);min-width:90px">접수 합산<\/div>'+
-            '<div class="cb"><div class="cf" style="width:'+Math.min(pMain,100)+'%;background:'+colM+'"><\/div><\/div>'+
-            '<div style="font-size:12px;font-weight:700;min-width:90px;text-align:right;color:'+colM+'">'+mainTotal+'\/'+tgt.achieve+'건 '+pMain+'%<\/div>'+
-          '<\/div>'+
-          '<div style="font-size:11px;color:var(--tm);padding:4px 0 6px 90px;display:flex;gap:12px">'+
-            '<span>인+티: <b style="color:var(--tp)">'+d.인티추티+'<\/b><\/span>'+
-            '<span>단독: <b style="color:var(--tp)">'+d.단독+'<\/b><\/span>'+
-            '<span>약갱: <b style="color:var(--tp)">'+d.약갱+'<\/b><\/span>'+
-            '<span>전화: <b style="color:var(--tp)">'+d.전화+'<\/b><\/span>'+
-          '<\/div>'+
-          '<div class="cr">'+
-            '<div style="font-size:12px;color:var(--ts);min-width:90px">무선<\/div>'+
-            '<div class="cb"><div class="cf" style="width:'+Math.min(pWire,100)+'%;background:'+colW+'"><\/div><\/div>'+
-            '<div style="font-size:12px;font-weight:700;min-width:90px;text-align:right;color:'+colW+'">'+d.무선+'\/'+tgt.wireless+'건 '+pWire+'%<\/div>'+
-          '<\/div>';
-        dayRateEl.appendChild(row);
-      });
+      var pMain=ACHIEVE_TARGET_DAY>0?Math.min(Math.round(totalMain/ACHIEVE_TARGET_DAY*100),999):0;
+      var pWire=WIRELESS_TARGET_DAY>0?Math.min(Math.round(totalWire/WIRELESS_TARGET_DAY*100),999):0;
+      var colM=pMain>=100?'var(--ok)':pMain>=70?'var(--wn)':'var(--dg)';
+      var colW=pWire>=100?'var(--ok)':pWire>=70?'var(--wn)':'var(--dg)';
+      dayRateEl.innerHTML=
+        '<div class="cr" style="margin-bottom:8px">'+
+          '<div style="font-size:12px;color:var(--ts);min-width:90px">접수 합산</div>'+
+          '<div class="cb"><div class="cf" style="width:'+Math.min(pMain,100)+'%;background:'+colM+'"></div></div>'+
+          '<div style="font-size:13px;font-weight:700;min-width:110px;text-align:right;color:'+colM+'">'+totalMain+'\/'+ACHIEVE_TARGET_DAY+'건 '+pMain+'%</div>'+
+        '</div>'+
+        '<div class="cr">'+
+          '<div style="font-size:12px;color:var(--ts);min-width:90px">무선</div>'+
+          '<div class="cb"><div class="cf" style="width:'+Math.min(pWire,100)+'%;background:'+colW+'"></div></div>'+
+          '<div style="font-size:13px;font-weight:700;min-width:110px;text-align:right;color:'+colW+'">'+totalWire+'\/'+WIRELESS_TARGET_DAY+'건 '+pWire+'%</div>'+
+        '</div>';
     }
 
-    // ── 월 누적 달성률 ─────────────────────────
+    // ── 월 누적 달성률 (전체 합산 기준) ───────────
     var monthRateEl = document.getElementById('dash-month-rate');
     monthRateEl.innerHTML = '';
     var bizDays = countBizDays(ym, dateStr);
@@ -1977,52 +2024,31 @@ function loadDash(dateStr){
     var mTargetWire = WIRELESS_TARGET_DAY * bizDays;
     document.getElementById('dash-month-rate-sub').textContent =
       ym+' 누적 · 영업일 '+bizDays+'일 · 목표 접수 '+mTargetMain+'건 / 무선 '+mTargetWire+'건';
-    var empMonth={};
+    var mTotalMain=0, mTotalWire=0;
     monthPerfs.filter(function(p){return p.date<=dateStr;}).forEach(function(p){
-      if(!empMonth[p.empId]) empMonth[p.empId]={인티추티:0,단독:0,약갱:0,전화:0,무선:0,empId:p.empId,name:dispName(p.empId,p.empName)};
       p.rows.forEach(function(r){
-        empMonth[p.empId].인티추티+=r['인티추티']||0;
-        empMonth[p.empId].단독+=r['단독']||0;
-        empMonth[p.empId].약갱+=r['약갱']||0;
-        empMonth[p.empId].전화+=r['전화']||0;
-        empMonth[p.empId].무선+=r['무선']||0;
+        mTotalMain+=(r['인티추티']||0)+(r['단독']||0)+(r['약갱']||0);
+        mTotalWire+=r['무선']||0;
       });
     });
-    if(!Object.keys(empMonth).length){
-      monthRateEl.innerHTML = '<div class="empty" style="padding:16px"><p>이달 실적 없음<\/p><\/div>';
+    if(!mTotalMain && !mTotalWire){
+      monthRateEl.innerHTML='<div class="empty" style="padding:16px"><p>이달 실적 없음<\/p><\/div>';
     } else {
-      Object.keys(empMonth).forEach(function(eid){
-        var d=empMonth[eid];
-        var n=d.name;
-        var tgt=getEmpDailyTarget(d.empId);
-        var mTargetMainE=tgt.achieve*bizDays, mTargetWireE=tgt.wireless*bizDays;
-        var mainTotal=d.인티추티+d.단독+d.약갱;
-        var pMain=mTargetMainE>0?Math.min(Math.round(mainTotal/mTargetMainE*100),999):0;
-        var pWire=mTargetWireE>0?Math.min(Math.round(d.무선/mTargetWireE*100),999):0;
-        var colM=pMain>=100?'var(--ok)':pMain>=70?'var(--wn)':'var(--dg)';
-        var colW=pWire>=100?'var(--ok)':pWire>=70?'var(--wn)':'var(--dg)';
-        var row=document.createElement('div');
-        row.style.cssText='margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--b)';
-        row.innerHTML=
-          '<div style="font-size:13px;font-weight:600;margin-bottom:8px">'+n+'<\/div>'+
-          '<div class="cr" style="margin-bottom:3px">'+
-            '<div style="font-size:12px;color:var(--ts);min-width:90px">접수 합산<\/div>'+
-            '<div class="cb"><div class="cf" style="width:'+Math.min(pMain,100)+'%;background:'+colM+'"><\/div><\/div>'+
-            '<div style="font-size:12px;font-weight:700;min-width:100px;text-align:right;color:'+colM+'">'+mainTotal+'\/'+mTargetMainE+'건 '+pMain+'%<\/div>'+
-          '<\/div>'+
-          '<div style="font-size:11px;color:var(--tm);padding:4px 0 6px 90px;display:flex;gap:12px">'+
-            '<span>인+티: <b style="color:var(--tp)">'+d.인티추티+'<\/b><\/span>'+
-            '<span>단독: <b style="color:var(--tp)">'+d.단독+'<\/b><\/span>'+
-            '<span>약갱: <b style="color:var(--tp)">'+d.약갱+'<\/b><\/span>'+
-            '<span>전화: <b style="color:var(--tp)">'+d.전화+'<\/b><\/span>'+
-          '<\/div>'+
-          '<div class="cr">'+
-            '<div style="font-size:12px;color:var(--ts);min-width:90px">무선 누적<\/div>'+
-            '<div class="cb"><div class="cf" style="width:'+Math.min(pWire,100)+'%;background:'+colW+'"><\/div><\/div>'+
-            '<div style="font-size:12px;font-weight:700;min-width:100px;text-align:right;color:'+colW+'">'+d.무선+'\/'+mTargetWireE+'건 '+pWire+'%<\/div>'+
-          '<\/div>';
-        monthRateEl.appendChild(row);
-      });
+      var mpMain=mTargetMain>0?Math.min(Math.round(mTotalMain/mTargetMain*100),999):0;
+      var mpWire=mTargetWire>0?Math.min(Math.round(mTotalWire/mTargetWire*100),999):0;
+      var cmM=mpMain>=100?'var(--ok)':mpMain>=70?'var(--wn)':'var(--dg)';
+      var cmW=mpWire>=100?'var(--ok)':mpWire>=70?'var(--wn)':'var(--dg)';
+      monthRateEl.innerHTML=
+        '<div class="cr" style="margin-bottom:8px">'+
+          '<div style="font-size:12px;color:var(--ts);min-width:90px">접수 누적</div>'+
+          '<div class="cb"><div class="cf" style="width:'+Math.min(mpMain,100)+'%;background:'+cmM+'"></div></div>'+
+          '<div style="font-size:13px;font-weight:700;min-width:110px;text-align:right;color:'+cmM+'">'+mTotalMain+'\/'+mTargetMain+'건 '+mpMain+'%</div>'+
+        '</div>'+
+        '<div class="cr">'+
+          '<div style="font-size:12px;color:var(--ts);min-width:90px">무선 누적</div>'+
+          '<div class="cb"><div class="cf" style="width:'+Math.min(mpWire,100)+'%;background:'+cmW+'"></div></div>'+
+          '<div style="font-size:13px;font-weight:700;min-width:110px;text-align:right;color:'+cmW+'">'+mTotalWire+'\/'+mTargetWire+'건 '+mpWire+'%</div>'+
+        '</div>';
     }
 
     // ── 일일 순위 및 등급 (기준: S≥32, A≥28, B≥24, C≥20, D<20) ──
@@ -2054,6 +2080,82 @@ function loadDash(dateStr){
 
     // ── 직원별 환산점수 막대그래프 (조회 날짜 기준) ──
     drawDashBarChart(dayPerfs, dateStr);
+
+    // ── 일일 직원별 목표달성률 & 월 누적 목표달성률 ──
+    var scoreTargetBtn=document.getElementById('dash-score-target-btn');
+    if(scoreTargetBtn) scoreTargetBtn.style.display=(CU&&CU.role==='admin')?'inline-flex':'none';
+
+    var dailyScoreEl=document.getElementById('dash-daily-score-rate');
+    var monthScoreEl=document.getElementById('dash-month-score-rate');
+    dailyScoreEl.innerHTML=''; monthScoreEl.innerHTML='';
+
+    // 당월 연차일수 per 직원 (종일연차=1, 오전/오후반차=0.5, 반반차=0.25)
+    var annualDays={};
+    anns.filter(function(a){return a.date.indexOf(ym)===0&&a.date<=dateStr&&!isOffDay(a.date);}).forEach(function(a){
+      var v=a.type==='연차'?1:a.type.indexOf('반반차')!==-1?0.25:a.type.indexOf('반차')!==-1?0.5:1;
+      annualDays[a.empId]=(annualDays[a.empId]||0)+v;
+    });
+
+    // 일일 환산점수 per 직원
+    var dayScore={}, dayFallback={};
+    dayPerfs.forEach(function(p){
+      dayScore[p.empId]=(dayScore[p.empId]||0)+calcTW(p.rows);
+      dayFallback[p.empId]=p.empName;
+    });
+    // 월 누적 환산점수 per 직원
+    var monthScore={}, monthFallback={};
+    monthPerfs.filter(function(p){return p.date<=dateStr;}).forEach(function(p){
+      monthScore[p.empId]=(monthScore[p.empId]||0)+calcTW(p.rows);
+      monthFallback[p.empId]=p.empName;
+    });
+
+    // 실적 있는 직원만, 직급순 정렬
+    function renderScoreRate(el, scoreMap, fallbackMap, isDaily){
+      var eids=Object.keys(scoreMap);
+      if(!eids.length){el.innerHTML='<div class="empty" style="padding:16px"><p>실적 없음<\/p><\/div>';return;}
+      // 직급순 정렬
+      var sorted=eids.slice().sort(function(a,b){
+        var ua=_empNameById[a]?{rank:(_seatUsers||[]).find(function(u){return u.id===a;})||{}}:{};
+        var ub=_empNameById[b]?{rank:(_seatUsers||[]).find(function(u){return u.id===b;})||{}}:{};
+        var ra=rankIdx((ua.rank||{}).rank||'');
+        var rb=rankIdx((ub.rank||{}).rank||'');
+        if(ra!==rb) return rb-ra;
+        return (dispName(a,fallbackMap[a])).localeCompare(dispName(b,fallbackMap[b]));
+      });
+      sorted.forEach(function(eid){
+        var pt=scoreMap[eid]||0;
+        var tgt=EMP_SCORE_TARGETS[eid];
+        if(!tgt) return; // 목표 미설정 직원은 스킵
+        var adjBiz=isDaily?1:(bizDays-(annualDays[eid]||0));
+        var mTgt=tgt*Math.max(adjBiz,0);
+        var pct=mTgt>0?Math.min(Math.round(pt/mTgt*100),999):0;
+        var col=pct>=100?'var(--ok)':pct>=70?'var(--wn)':'var(--dg)';
+        var nm=dispName(eid,fallbackMap[eid]);
+        var row=document.createElement('div');
+        row.style.cssText='margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--b)';
+        row.innerHTML=
+          '<div style="display:flex;justify-content:space-between;margin-bottom:5px">'+
+            '<span style="font-size:13px;font-weight:600">'+nm+'<\/span>'+
+            '<span style="font-size:12px;font-weight:700;color:'+col+'">'+pt.toFixed(1)+'pt \/ '+mTgt.toFixed(1)+'pt<\/span>'+
+          '<\/div>'+
+          '<div class="cb"><div class="cf" style="width:'+Math.min(pct,100)+'%;background:'+col+'"><\/div><\/div>'+
+          '<div style="font-size:11px;color:'+col+';text-align:right;margin-top:2px;font-weight:700">'+pct+'%<\/div>';
+        el.appendChild(row);
+      });
+      // 목표 미설정 직원 안내
+      var noTarget=eids.filter(function(eid){return !EMP_SCORE_TARGETS[eid];});
+      if(noTarget.length){
+        var names=noTarget.map(function(eid){return dispName(eid,fallbackMap[eid]);}).join(', ');
+        var note=document.createElement('div');
+        note.style.cssText='font-size:11px;color:var(--tm);margin-top:6px';
+        note.textContent='목표 미설정: '+names;
+        el.appendChild(note);
+      }
+    }
+    document.getElementById('dash-month-score-sub').textContent=
+      ym+' · 영업일 '+bizDays+'일 · 연차 제외 개인별 산정';
+    renderScoreRate(dailyScoreEl, dayScore, dayFallback, true);
+    renderScoreRate(monthScoreEl, monthScore, monthFallback, false);
 
     // ── 당월 연차 목록 (최대 10건, 초과 시 달력 링크) ──
     var annListEl = document.getElementById('dash-annual');
@@ -2105,6 +2207,43 @@ function saveGlobalTargets(){
   });
 }
 var _empTargetsUsers=[];
+function openEmpScoreTargets(){
+  api('getAllUsers',{}).then(function(r){
+    if(!r.ok){alert(r.error);return;}
+    var emps=sortByRank(
+      r.employees.filter(function(e){return e.role!=='admin'&&!e.retired;}),
+      function(u){return u.name;},function(u){return u.rank;}
+    );
+    var body=document.getElementById('emptargets-body');
+    body.innerHTML='<div style="font-size:12px;color:var(--ts);margin-bottom:12px">직원별 일별 환산점수 목표를 입력하세요. 월 목표 = 일별목표 × 영업일(연차제외) 자동계산됩니다.</div>';
+    emps.forEach(function(e){
+      var cur=EMP_SCORE_TARGETS[e.id]||'';
+      var row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--b)';
+      row.innerHTML='<div style="flex:1;font-size:13px;font-weight:600">'+e.name+'<span style="color:var(--tm);font-weight:400;font-size:12px"> ('+(e.rank||'-')+')<\/span><\/div>'+
+        '<input type="number" min="0" step="0.1" placeholder="일별 목표(pt)" data-id="'+e.id+'" style="width:140px;padding:6px 8px;border:1.5px solid var(--b);border-radius:7px;font-size:12px" value="'+cur+'">';
+      body.appendChild(row);
+    });
+    document.getElementById('emptargets-save').onclick=saveEmpScoreTargets;
+    openM('m-emptargets');
+  });
+}
+function saveEmpScoreTargets(){
+  var inputs=[].slice.call(document.querySelectorAll('#emptargets-body input[data-id]'));
+  var map=Object.assign({},EMP_SCORE_TARGETS);
+  inputs.forEach(function(inp){
+    var id=inp.dataset.id, v=inp.value.trim();
+    if(v&&!isNaN(Number(v))) map[id]=Number(v);
+    else delete map[id];
+  });
+  api('saveSettings',{EMP_SCORE_TARGETS:map}).then(function(res){
+    if(!res.ok){alert(res.error||'저장 실패');return;}
+    EMP_SCORE_TARGETS=map;
+    addLog('직원별 환산점수 목표 변경');
+    closeM('m-emptargets');
+    loadDash(_dashDate);
+  });
+}
 function openEmpTargets(){
   api('getAllUsers',{}).then(function(r){
     if(!r.ok){alert(r.error);return;}
@@ -3021,6 +3160,7 @@ function abdg(s){
   if(!s) return '';
   if(s.indexOf('야근')!==-1) return '<span class="bdg b-r">'+s+'<\/span>';
   if(s==='연차') return '<span class="bdg b-gr">연차<\/span>';
+  if(s.indexOf('조퇴')!==-1) return '<span class="bdg" style="background:#FEF3C7;color:#92400E">'+s+'<\/span>';
   if(s.indexOf('반반차')!==-1) return '<span class="bdg b-b">'+s+'<\/span>';
   if(s.indexOf('반차')!==-1) return '<span class="bdg b-o">'+s+'<\/span>';
   return '<span class="bdg b-g">정상<\/span>';
@@ -3097,6 +3237,8 @@ document.addEventListener('DOMContentLoaded',function(){
   if(dtSaveBtn) dtSaveBtn.addEventListener('click',saveGlobalTargets);
   var dtEmpBtn=document.getElementById('dt-emp-btn');
   if(dtEmpBtn) dtEmpBtn.addEventListener('click',openEmpTargets);
+  var scoreTargetBtn2=document.getElementById('dash-score-target-btn');
+  if(scoreTargetBtn2) scoreTargetBtn2.addEventListener('click',openEmpScoreTargets);
   var etCancel=document.getElementById('emptargets-cancel');
   if(etCancel) etCancel.addEventListener('click',function(){closeM('m-emptargets');});
   var etSave=document.getElementById('emptargets-save');
@@ -3118,7 +3260,7 @@ document.addEventListener('DOMContentLoaded',function(){
   var seatsSave=document.getElementById('seats-save-btn');
   if(seatsSave) seatsSave.addEventListener('click',saveAllSeats);
   // 모달 배경 클릭해도 닫히지 않음 (저장/취소 버튼으로만 닫힘)
-  setMR('mys','mye'); setMR('fs','fe2');
+  setMYM(); setMR('fs','fe2');
   var s=sessionStorage.getItem('cu');
   if(s){try{CU=JSON.parse(s);showApp();}catch(err){sessionStorage.removeItem('cu');}}
 });
@@ -3160,9 +3302,18 @@ function drawMyWeekChart(){
   });
 }
 
+function setMYM(){
+  var el=document.getElementById('mym');
+  if(el) el.value=new Date().toISOString().slice(0,7);
+}
 function loadMyPerf(){
   var el=document.getElementById('my-body');
-  var s=document.getElementById('mys').value,e=document.getElementById('mye').value;
+  var ym=document.getElementById('mym')?document.getElementById('mym').value:'';
+  if(!ym) ym=new Date().toISOString().slice(0,7);
+  var year=parseInt(ym.slice(0,4)),month=parseInt(ym.slice(5,7));
+  var s=ym+'-01';
+  var lastDay=new Date(year,month,0).getDate();
+  var e=ym+'-'+String(lastDay).padStart(2,'0');
   el.innerHTML=ldg();
   // 주간 그래프도 같이 갱신
   drawMyWeekChart();
