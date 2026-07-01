@@ -3268,7 +3268,7 @@ function sortByRank(arr, getName, getRank){
 }
 function fillIPGUsers(){
   return api('getAllUsers',{}).then(function(r){
-    _ipgUsers=r.ok?r.employees:[];
+    _ipgUsers=r.ok?r.employees.filter(function(u){return !u.retired;}):[];
     _ipgUsers=sortByRank(_ipgUsers,function(u){return u.name;},function(u){return u.rank;});
   });
 }
