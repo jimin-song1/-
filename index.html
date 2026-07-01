@@ -734,8 +734,10 @@ var _pid=1,_iid=5;
 // ── 캐시 ─────────────────────────────────────
 var _cache={};
 var CACHE_TTL=60000; // 60초
+var CACHE_TTL_SHORT=20000; // 20초 (실적 등 자주 바뀌는 캐시)
 // 캐시 대상 액션 (읽기 전용 + 자주 안 바뀌는 것)
 var CACHEABLE=['getAllUsers','getEmployees','getSeats','getIPGroups','getCalNotice','getSettings'];
+var CACHEABLE_SHORT=['getPerfs','getAnnuals']; // 짧은 TTL 캐시
 // 액션 실행 시 무효화할 캐시 키 맵
 var CACHE_INVALIDATE={
   addEmployee:['getAllUsers','getEmployees'],
@@ -747,12 +749,16 @@ var CACHE_INVALIDATE={
   deleteIPGroup:['getIPGroups'],
   saveCalNotice:['getCalNotice'],
   saveSettings:['getSettings'],
+  savePerf:['getPerfs'],
+  deletePerf:['getPerfs'],
+  saveAnnual:['getAnnuals'],
   addChangeLog:['getChangeLogs']
 };
-function cacheGet(key){
+function cacheGet(key,short){
   var c=_cache[key];
   if(!c) return null;
-  if(Date.now()-c.ts>CACHE_TTL){delete _cache[key];return null;}
+  var ttl=short?CACHE_TTL_SHORT:CACHE_TTL;
+  if(Date.now()-c.ts>ttl){delete _cache[key];return null;}
   return c.data;
 }
 function cacheSet(key,data){_cache[key]={data:data,ts:Date.now()};}
@@ -812,10 +818,22 @@ function api(action, data){
   // 쓰기 액션이면 관련 캐시 무효화
   cacheInvalidate(action);
 
-  // 캐시 가능한 액션이면 캐시 먼저 확인
+  // 캐시 가능한 액션이면 캐시 먼저 확인 (일반 TTL)
   if(CACHEABLE.indexOf(action)!==-1){
     var cacheKey=action+':'+JSON.stringify(data||{});
-    var cached=cacheGet(cacheKey);
+    var cached=cacheGet(cacheKey,false);
+    if(cached) return Promise.resolve(cached);
+    var params=new URLSearchParams({action:action,data:JSON.stringify(data||{})});
+    return fetch(GAS_URL+'?'+params.toString(),{method:'GET'})
+      .then(function(r){return r.json();})
+      .then(function(res){if(res.ok) cacheSet(cacheKey,res);return res;})
+      .catch(function(e){return{ok:false,error:'GAS 연결 실패: '+e.message};});
+  }
+
+  // 짧은 TTL 캐시 (getPerfs, getAnnuals)
+  if(CACHEABLE_SHORT.indexOf(action)!==-1){
+    var cacheKey=action+':'+JSON.stringify(data||{});
+    var cached=cacheGet(cacheKey,true);
     if(cached) return Promise.resolve(cached);
     var params=new URLSearchParams({action:action,data:JSON.stringify(data||{})});
     return fetch(GAS_URL+'?'+params.toString(),{method:'GET'})
@@ -1050,6 +1068,7 @@ function isPerfDirty(){
   return false;
 }
 
+var _loadedTabs={};
 function switchTab(id){
   // 실적 입력 탭에서 다른 탭으로 이동 시 입력 중이면 확인
   var curActive=_tabs.find(function(t){return document.getElementById(t.p)&&document.getElementById(t.p).classList.contains('active');});
@@ -1067,7 +1086,11 @@ function switchTab(id){
   if(id==='cal'){initCal();loadCal();loadCalNotice();updateCalHint();}
   if(id==='dash') loadDash(document.getElementById('dash-date').value||new Date().toISOString().slice(0,10));
   if(id==='allperf'){loadAllPerf();loadEmpFilter();renderAllPerfFormula();}
-  if(id==='emps') loadEmps();
+  if(id==='emps'){
+    // 20초 이내 이미 로드된 경우 스킵 (직원추가/삭제/수정 등 쓰기 작업 후에는 _loadedTabs 초기화됨)
+    var now=Date.now();
+    if(!_loadedTabs.emps||now-_loadedTabs.emps>20000){ _loadedTabs.emps=now; loadEmps(); }
+  }
   if(id==='seats') loadSeats();
   if(id==='ip') loadIPs();
   if(id==='myinfo') loadMyInfo();
@@ -1229,7 +1252,8 @@ function initInputEmpSelector(){
   api('getAllUsers',{}).then(function(r){
     if(!r.ok) return;
     sel.innerHTML='';
-    r.employees.filter(function(u){return !u.retired;}).forEach(function(u){
+    var sorted=sortByRank(r.employees.filter(function(u){return !u.retired;}),function(u){return u.name;},function(u){return u.rank;});
+    sorted.forEach(function(u){
       var opt=document.createElement('option');
       opt.value=u.id; opt.textContent=u.name+(u.id===CU.id?' (나)':'');
       sel.appendChild(opt);
@@ -1493,7 +1517,8 @@ function openCPop(date,e){
   api('getAllUsers',{}).then(function(r){
     if(!r.ok) return;
     empSel.innerHTML='';
-    r.employees.filter(function(u){return !u.retired;}).forEach(function(u){
+    var sorted=sortByRank(r.employees.filter(function(u){return !u.retired;}),function(u){return u.name;},function(u){return u.rank;});
+    sorted.forEach(function(u){
       var opt=document.createElement('option');
       opt.value=u.id; opt.textContent=u.name+(u.id===CU.id?' (나)':'');
       empSel.appendChild(opt);
@@ -2069,7 +2094,10 @@ var _empTargetsUsers=[];
 function openEmpTargets(){
   api('getAllUsers',{}).then(function(r){
     if(!r.ok){alert(r.error);return;}
-    _empTargetsUsers=r.employees.filter(function(e){return e.role!=='admin';});
+    _empTargetsUsers=sortByRank(
+      r.employees.filter(function(e){return e.role!=='admin';}),
+      function(u){return u.name;},function(u){return u.rank;}
+    );
     var body=document.getElementById('emptargets-body');
     body.innerHTML='';
     _empTargetsUsers.forEach(function(e){
@@ -2237,10 +2265,13 @@ function loadChangeLogs(){
 
 // ── 자리 배치도 ────────────────────────────────
 var _seatUsers = [];
+var _seatUsers=[];
+var _seatData={};  // 마지막으로 불러온 seats (label 포함) 메모리 캐시
 function loadSeats(){
   Promise.all([api('getSeats',{}),api('getAllUsers',{})]).then(function(rs){
     var seats=rs[0].ok?rs[0].seats:D_SEATS;
-    _seatUsers=rs[1].ok?rs[1].employees:[];
+    _seatData=seats;
+    _seatUsers=sortByRank(rs[1].ok?rs[1].employees:[],function(u){return u.name;},function(u){return u.rank;});
     var isA=CU.role==='admin';
 
     var saveBtn=document.getElementById('seats-save-btn');
@@ -2263,8 +2294,9 @@ function renderSeatCard(el, sid, seat, emp, isA){
   var name=emp?emp.name:'비어있음';
   el.className='seat-card'+(emp?' occupied':'');
 
+  var sortedUsers=sortByRank(_seatUsers,function(u){return u.name;},function(u){return u.rank;});
   var empOpts='<option value="">-- 비어있음 --<\/option>'+
-    _seatUsers.map(function(u){return '<option value="'+u.id+'"'+(u.id===seat.empId?' selected':'')+'>'+u.name+'<\/option>';}).join('');
+    sortedUsers.map(function(u){return '<option value="'+u.id+'"'+(u.id===seat.empId?' selected':'')+'>'+u.name+'<\/option>';}).join('');
 
   el.innerHTML=
     '<div style="font-size:9px;color:var(--tm);margin-bottom:4px">'+seat.label+'<\/div>'+
@@ -2278,9 +2310,34 @@ function saveAllSeats(){
   document.querySelectorAll('.seat-sel[data-sid]').forEach(function(sel){
     map[sel.dataset.sid]=sel.value;
   });
+  var btn=document.getElementById('seats-save-btn');
+  if(btn){btn.textContent='저장 중...';btn.disabled=true;}
   api('saveAllSeats',{seats:map}).then(function(res){
-    if(res.ok){addLog('자리 배치도 저장');loadSeats();alert('자리 배치가 저장되었습니다.');}
-    else alert(res.error||'저장 실패');
+    if(btn){btn.textContent='💾 전체 저장';btn.disabled=false;}
+    if(!res.ok){alert(res.error||'저장 실패');return;}
+    addLog('자리 배치도 저장');
+    // 저장된 값으로 _seatData 업데이트 후 카드 즉시 재렌더 (추가 API 호출 없음)
+    var isA=CU.role==='admin';
+    Object.keys(map).forEach(function(sid){
+      if(_seatData[sid]) _seatData[sid].empId=map[sid];
+    });
+    document.querySelectorAll('.seat-card[data-sid]').forEach(function(el){
+      var sid=el.dataset.sid;
+      var seat=_seatData[sid];
+      if(!seat) return;
+      var emp=_seatUsers.find(function(u){return u.id===seat.empId;})||null;
+      renderSeatCard(el,sid,seat,emp,isA);
+    });
+    // 인라인 피드백 (alert 제거)
+    var saveResult=document.getElementById('seats-save-result');
+    if(!saveResult){
+      saveResult=document.createElement('span');
+      saveResult.id='seats-save-result';
+      saveResult.style.cssText='font-size:12px;color:var(--ok);margin-left:8px';
+      if(btn&&btn.parentNode) btn.parentNode.insertBefore(saveResult,btn.nextSibling);
+    }
+    saveResult.textContent='✅ 저장 완료!';
+    setTimeout(function(){if(saveResult)saveResult.textContent='';},2500);
   });
 }
 
@@ -2288,7 +2345,8 @@ function saveAllSeats(){
 function loadEmpFilter(){
   api('getEmployees',{}).then(function(r){
     if(!r.ok) return;
-    document.getElementById('fe').innerHTML='<option value="">전체 직원<\/option>'+r.employees.map(function(e){return '<option value="'+e.id+'">'+e.name+'<\/option>';}).join('');
+    var sorted=sortByRank(r.employees,function(u){return u.name;},function(u){return u.rank;});
+    document.getElementById('fe').innerHTML='<option value="">전체 직원<\/option>'+sorted.map(function(e){return '<option value="'+e.id+'">'+e.name+'<\/option>';}).join('');
   });
 }
 function loadAllPerf(){
@@ -2372,7 +2430,7 @@ function loadEmps(){
   api('getAllUsers',{}).then(function(r){
     if(!r.ok){document.getElementById('emp-section-admin').innerHTML=alHtml(r.error,'er');return;}
     var allEmps=r.employees;
-    var admins=allEmps.filter(function(e){return e.role==='admin';});
+    var admins=sortByRank(allEmps.filter(function(e){return e.role==='admin';}),function(u){return u.name;},function(u){return u.rank;});
     var normalEmps=allEmps.filter(function(e){return e.role!=='admin';});
 
     // 관리자 섹션 즉시 고정 렌더링
@@ -2444,7 +2502,13 @@ function loadEmps(){
         groups[gr.g].push({e:e,pt:pt,gr:gr});
       });
       ['S','A','B','C','D'].forEach(function(g){
-        groups[g].sort(function(a,b){return b.pt-a.pt;});
+        groups[g].sort(function(a,b){return b.pt-a.pt;}); // 등급 내 환산점수 높은 순
+      });
+      // 실적 없음 그룹은 직급 내림차순 → 동일 직급이면 이름 오름차순
+      groups.nodata.sort(function(a,b){
+        var ri=rankIdx(a.e.rank)-rankIdx(b.e.rank);
+        if(ri!==0) return -ri; // 내림차순
+        return (a.e.name||'').localeCompare(b.e.name||'');
       });
 
       var sectionDefs=[
@@ -2634,7 +2698,7 @@ function saveEmpFromModal(){
     api('saveSettings',{EMP_SCORE_TARGETS:newMap}).then(function(){
       EMP_SCORE_TARGETS=newMap;
       closeM('m-empd');
-      refreshEmpNameMap(function(){loadEmps();});
+      refreshEmpNameMap(function(){_loadedTabs.emps=0;loadEmps();});
     });
   });
 }
@@ -2657,7 +2721,7 @@ function retireEmpFromModal(){
       addLog(oldName+' → '+newName+' 퇴사 처리');
       _empNameById[_editEmpId]=newName;
       closeM('m-empd');
-      refreshEmpNameMap(function(){loadEmps();});
+      refreshEmpNameMap(function(){_loadedTabs.emps=0;loadEmps();});
     });
   });
 }
@@ -2671,7 +2735,7 @@ function deleteEmpFromModal(){
   if(!confirm('이 직원을 삭제하시겠습니까?')) return;
   var delName=curUser?curUser.name:_editEmpId;
   api('deleteEmployee',{id:_editEmpId}).then(function(res){
-    if(res.ok){addLog(delName+' 직원 삭제');closeM('m-empd');loadEmps();}
+    if(res.ok){addLog(delName+' 직원 삭제');closeM('m-empd');_loadedTabs.emps=0;loadEmps();}
     else alert(res.error||'삭제 실패');
   });
 }
@@ -2702,7 +2766,7 @@ function addEmp(){
   api('addEmployee',{emp:emp}).then(function(res){
     if(res.ok){
       addLog(emp.name+' 직원 추가'+(isAdmin?' (관리자)':''));
-      closeM('m-addemp');loadEmps();
+      closeM('m-addemp');_loadedTabs.emps=0;loadEmps();
     } else alert(res.error||'추가 실패');
   });
 }
@@ -2850,18 +2914,21 @@ function openEditIPG(id){
     fillIPGUsers().then(function(){(g.entries||[]).forEach(addIPRow);openM('m-ipg');});
   });
 }
+// ── 공용 직급/등급 정렬 헬퍼 ─────────────────────────────────
+var RANK_ORDER=['파트타임','사원','주임','대리','과장','차장','부장','실장','이사','팀장','임원'];
+function rankIdx(r){ var i=RANK_ORDER.indexOf(r||''); return i===-1?999:i; }
+// 직급 내림차순(높은 직급 먼저), 같으면 이름 오름차순
+function sortByRank(arr, getName, getRank){
+  return arr.slice().sort(function(a,b){
+    var ri=rankIdx(getRank(b))-rankIdx(getRank(a)); // 내림차순 (임원>팀장>…>사원)
+    if(ri!==0) return ri;
+    return (getName(a)||'').localeCompare(getName(b)||'');
+  });
+}
 function fillIPGUsers(){
-  var RANK_ORDER=['사원','주임','대리','과장','차장','부장','이사','설장','팀장','임원'];
   return api('getAllUsers',{}).then(function(r){
     _ipgUsers=r.ok?r.employees:[];
-    // 직급 오름차순 정렬
-    _ipgUsers.sort(function(a,b){
-      var ai=RANK_ORDER.indexOf(a.rank||'');
-      var bi=RANK_ORDER.indexOf(b.rank||'');
-      if(ai===-1) ai=999; if(bi===-1) bi=999;
-      if(ai!==bi) return ai-bi;
-      return (a.name||'').localeCompare(b.name||'');
-    });
+    _ipgUsers=sortByRank(_ipgUsers,function(u){return u.name;},function(u){return u.rank;});
   });
 }
 function addIPRow(en){
