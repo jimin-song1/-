@@ -82,6 +82,11 @@ table.dt td.tdl{text-align:left;}
 .b-b{background:var(--al);color:var(--ac);}
 .b-p{background:var(--ppl);color:var(--pp);}
 .empty{text-align:center;padding:36px;color:var(--tm);}
+.scroll-list{max-height:65vh;overflow-y:auto;overflow-x:auto;}
+.scroll-list::-webkit-scrollbar{width:8px;}
+.scroll-list::-webkit-scrollbar-thumb{background:var(--bs);border-radius:8px;}
+.scroll-list::-webkit-scrollbar-track{background:transparent;}
+.scroll-list table.dt thead th{position:sticky;top:0;z-index:5;}
 .empty .ei{font-size:30px;margin-bottom:8px;}
 .empty p{font-size:13px;}
 .ldg{text-align:center;padding:28px;color:var(--tm);font-size:13px;}
@@ -119,7 +124,7 @@ table.pt td.otc{background:#FFF8F8;}
 .etc-t{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:5px 8px;border:1.5px solid var(--b);border-radius:6px;background:var(--bg);cursor:pointer;font-size:12px;color:var(--tm);min-height:32px;text-align:left;transition:border-color .15s;overflow:hidden;}
 .etc-t:hover{border-color:var(--bs);}
 .etc-t.hv{color:var(--tp);border-color:var(--ac);background:var(--al);}
-.etc-d{display:none;position:fixed;background:var(--s);border:1.5px solid var(--b);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.13);padding:5px;min-width:150px;z-index:500;}
+.etc-d{display:none;position:fixed;background:var(--s);border:1.5px solid var(--b);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.13);padding:5px;min-width:160px;z-index:500;}
 .etc-d.open{display:block;}
 .etc-o{display:flex;align-items:center;gap:7px;padding:6px 9px;border-radius:6px;cursor:pointer;font-size:12px;transition:background .1s;user-select:none;}
 .etc-o:hover{background:var(--bg);}
@@ -254,7 +259,7 @@ table.pt td.otc{background:#FFF8F8;}
             <button class="btn btn-se btn-sm" id="my-q-btn">조회</button>
           </div>
         </div>
-        <div id="my-body"></div>
+        <div id="my-body" class="scroll-list"></div>
       </div>
     </div>
     <!-- 연차 달력 -->
@@ -393,7 +398,7 @@ table.pt td.otc{background:#FFF8F8;}
       <div class="card">
         <div class="cttl" style="margin-bottom:4px">변경 로그</div>
         <div class="csub" style="margin-bottom:12px">최근 7일 · Google Sheets에 누적 저장</div>
-        <div id="dash-chglog-body"><div class="ldg"><span class="spin"></span>불러오는 중...</div></div>
+        <div id="dash-chglog-body" style="max-height:280px;overflow-y:auto"><div class="ldg"><span class="spin"></span>불러오는 중...</div></div>
       </div>
     </div>
     <!-- 전체 실적 -->
@@ -419,7 +424,7 @@ table.pt td.otc{background:#FFF8F8;}
             <button class="btn btn-pr btn-sm" id="all-q-btn">조회</button>
           </div>
         </div>
-        <div id="allperf-body"></div>
+        <div id="allperf-body" class="scroll-list"></div>
       </div>
     </div>
     <!-- 직원 관리 -->
@@ -641,7 +646,10 @@ table.pt td.otc{background:#FFF8F8;}
 <!-- 모달: 직원 상세 (관리자) -->
 <div class="mbg" id="m-empd">
   <div class="modal">
-    <div class="mttl" id="empd-ttl">직원 상세</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div class="mttl" id="empd-ttl" style="margin-bottom:0">직원 상세</div>
+      <button class="btn btn-se btn-sm" id="empd-cancel-top" style="font-size:13px;padding:5px 12px">✕ 닫기</button>
+    </div>
     <div id="empd-body"></div>
     <div class="mact">
       <button class="btn btn-wn btn-sm" id="empd-retire">🚪 퇴사 처리</button>
@@ -1252,18 +1260,47 @@ function buildPerfTable(){
       e.stopPropagation();
       document.querySelectorAll('.etc-d.open').forEach(function(d){if(d.id!=='ed-'+i)d.classList.remove('open');});
       var dd=document.getElementById('ed-'+i);
-      var rect=trig.getBoundingClientRect();
-      dd.style.left=rect.left+'px'; dd.style.top=(rect.bottom+4)+'px';
+      var willOpen=!dd.classList.contains('open');
       dd.classList.toggle('open');
+      if(willOpen) positionEtcDropdown(trig,dd);
     });
   });
   updatePTtl();
+}
+
+// 기타업무 드롭다운 위치를 트리거 기준 fixed 좌표로 계산 (스크롤에 딸려 내려가지 않도록)
+function positionEtcDropdown(trig,dd){
+  var r=trig.getBoundingClientRect();
+  var left=r.left,top=r.bottom+2;
+  dd.style.left=left+'px';
+  dd.style.top=top+'px';
+  // 화면 아래로 넘치면 위쪽에 표시
+  var ddH=dd.offsetHeight||200;
+  if(top+ddH>window.innerHeight){
+    top=r.top-ddH-2;
+    if(top<4) top=4;
+    dd.style.top=top+'px';
+  }
+  // 화면 오른쪽으로 넘치면 보정
+  var ddW=dd.offsetWidth||160;
+  if(left+ddW>window.innerWidth){
+    left=window.innerWidth-ddW-8;
+    if(left<4) left=4;
+    dd.style.left=left+'px';
+  }
 }
 
 document.addEventListener('click',function(e){
   // 드롭다운 내부 클릭이면 닫지 않음 (여러 개 선택 가능하게)
   if(e.target.closest&&e.target.closest('.etc-d')) return;
   if(e.target.closest&&e.target.closest('.etc-t')) return;
+  document.querySelectorAll('.etc-d.open').forEach(function(d){d.classList.remove('open');});
+});
+// 스크롤/리사이즈 시 열려있는 드롭다운은 닫음 (fixed 위치라 트리거와 어긋날 수 있으므로)
+window.addEventListener('scroll',function(){
+  document.querySelectorAll('.etc-d.open').forEach(function(d){d.classList.remove('open');});
+},true);
+window.addEventListener('resize',function(){
   document.querySelectorAll('.etc-d.open').forEach(function(d){d.classList.remove('open');});
 });
 
@@ -1512,13 +1549,27 @@ function moveCal(d){
   else{cM+=d;if(cM<0){cM=11;cY--;}if(cM>11){cM=0;cY++;}}
   loadCal();
 }
+function ymOf(y,m){return y+'-'+String(m+1).padStart(2,'0');}
+function prefetchCalMonth(y,m){
+  var ym=ymOf(y,m);
+  // getAnnuals/getPerfs는 짧은 TTL 캐시가 있으므로 미리 호출해두면 이동 시 즉시 응답됨
+  api('getAnnuals',{ym:ym});
+  api('getPerfs',{s:ym+'-01',e:ym+'-31'});
+}
 function loadCal(){
   var ym=cY+'-'+String(cM+1).padStart(2,'0');
   document.getElementById('cal-ttl').textContent=cY+'년 '+(cM+1)+'월';
+  var grid=document.getElementById('cal-grid');
+  if(grid && !grid.children.length){grid.innerHTML='<div class="ldg" style="grid-column:1/-1">'+ldg()+'<\/div>';}
   Promise.all([api('getAnnuals',{ym:ym}),api('getPerfs',{s:ym+'-01',e:ym+'-31'})]).then(function(rs){
     cAn=rs[0].ok?rs[0].annuals:[];
     cPf=rs[1].ok?rs[1].perfs:[];
     renderCal();
+    // 이전/다음 달을 미리 불러와 캐시에 채워둠 → 다음 이동 시 즉시 표시
+    var pm=cM-1,py=cY,nm=cM+1,ny=cY;
+    if(pm<0){pm=11;py--;} if(nm>11){nm=0;ny++;}
+    prefetchCalMonth(py,pm);
+    prefetchCalMonth(ny,nm);
   });
 }
 function renderCal(){
@@ -3362,13 +3413,14 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('ne-admin').addEventListener('change',function(){
     document.getElementById('ne-pw-hint').textContent=this.checked?'(필수)':'(선택)';
   });
-  document.getElementById('empd-cancel').addEventListener('click',function(){
-    // 평가 상세에서 숨겼던 버튼 복원
+  function closeEmpModal(){
     document.getElementById('empd-ok').style.display='';
     document.getElementById('empd-del').style.display='';
     document.getElementById('empd-retire').style.display='';
     closeM('m-empd');
-  });
+  }
+  document.getElementById('empd-cancel').addEventListener('click',closeEmpModal);
+  document.getElementById('empd-cancel-top').addEventListener('click',closeEmpModal);
   document.getElementById('empd-ok').addEventListener('click',saveEmpFromModal);
   document.getElementById('empd-retire').addEventListener('click',retireEmpFromModal);
   document.getElementById('empd-del').addEventListener('click',deleteEmpFromModal);
