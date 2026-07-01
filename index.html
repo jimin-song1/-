@@ -2822,7 +2822,24 @@ function openEvalDetail(e, ym, pt, cnt, biz, gr, perfs){
   // 날짜별 상세 테이블
   var detailHtml='';
   if(empPerfs.length){
+    // 열별 합계 계산
+    var totals={};FIELDS.forEach(function(f){totals[f.k]=0;});
+    empPerfs.forEach(function(p){
+      p.rows.forEach(function(r){FIELDS.forEach(function(f){totals[f.k]+=(r[f.k]||0);});});
+    });
+    var totalSumHtml='<div class="slbl">월 합계<\/div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;padding:12px;background:var(--bg);border-radius:10px">'+
+      FIELDS.map(function(f){
+        var v=totals[f.k];
+        return '<div style="text-align:center;min-width:70px">'+
+          '<div style="font-size:18px;font-weight:700;color:'+(v>0?'var(--tp)':'var(--tm)')+'">'+v+'<\/div>'+
+          '<div style="font-size:11px;color:var(--tm);margin-top:2px">'+f.l+'<\/div>'+
+        '<\/div>';
+      }).join('')+
+      '<\/div>';
+
     detailHtml='<div class="slbl">월 실적 상세<\/div>';
+    detailHtml+=totalSumHtml;
     detailHtml+='<div class="tw"><table class="dt"><thead><tr><th>날짜<\/th><th>근태<\/th>';
     FIELDS.forEach(function(f){detailHtml+='<th>'+f.l+'<\/th>';});
     detailHtml+='<th>기타업무<\/th><th>합계<\/th><th style="background:#EEF3FD;color:var(--ad)">환산점수<\/th><\/tr><\/thead><tbody>';
