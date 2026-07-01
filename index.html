@@ -405,9 +405,19 @@ table.pt td.otc{background:#FFF8F8;}
         <div style="font-size:12px;color:var(--tm);margin-top:8px" id="allperf-formula-ex"></div>
       </div>
       <div class="card">
-        <div class="chd">
+        <div class="chd" style="flex-wrap:wrap;gap:8px">
           <div class="cttl">전체 실적 관리</div>
-          <div class="fbar" style="margin-bottom:0"><select id="fe"><option value="">전체 직원</option></select><input type="date" id="fs"><span style="color:var(--tm)">~</span><input type="date" id="fe2"><button class="btn btn-se btn-sm" id="all-q-btn">조회</button></div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-se btn-sm" id="ap-prev-btn">◀</button>
+            <input type="date" id="fs" style="padding:6px 10px;border:1.5px solid var(--b);border-radius:8px;font-size:13px;font-family:inherit;outline:none;background:var(--bg)">
+            <span style="color:var(--tm);font-size:13px">~</span>
+            <input type="date" id="fe2" style="padding:6px 10px;border:1.5px solid var(--b);border-radius:8px;font-size:13px;font-family:inherit;outline:none;background:var(--bg)">
+            <button class="btn btn-se btn-sm" id="ap-next-btn">▶</button>
+            <button class="btn btn-se btn-sm" id="ap-lastmonth-btn">지난달</button>
+            <button class="btn btn-se btn-sm" id="ap-thismonth-btn">이번달</button>
+            <select id="fe" style="padding:6px 10px;border:1.5px solid var(--b);border-radius:8px;font-size:13px;font-family:inherit;outline:none;background:var(--bg)"><option value="">전체 직원</option></select>
+            <button class="btn btn-pr btn-sm" id="all-q-btn">조회</button>
+          </div>
         </div>
         <div id="allperf-body"></div>
       </div>
@@ -3237,7 +3247,7 @@ function deleteIPG(id){
 }
 
 function setToday(){var d=document.getElementById('pd');if(d)d.value=new Date().toISOString().slice(0,10);}
-function setMR(si,ei){var d=new Date(),e=d.toISOString().slice(0,10);d.setDate(1);document.getElementById(si).value=d.toISOString().slice(0,10);document.getElementById(ei).value=e;}
+function setMR(si,ei){var d=new Date(),e=d.toISOString().slice(0,10);d.setDate(d.getDate()-6);document.getElementById(si).value=d.toISOString().slice(0,10);document.getElementById(ei).value=e;}
 function showAl(id,msg,t){var el=document.getElementById(id);el.className='al al-'+t;el.textContent=msg;el.style.display='flex';if(t!=='in')setTimeout(function(){el.style.display='none';},5000);}
 function alHtml(msg,t){return '<div class="al al-'+t+'">'+msg+'<\/div>';}
 function ldg(){return '<div class="ldg"><span class="spin"><\/span>불러오는 중...<\/div>';}
@@ -3280,6 +3290,38 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('myinfo-cancel').addEventListener('click',function(){closeM('m-myinfo');});
   document.getElementById('myinfo-ok').addEventListener('click',saveMyInfo);
   document.getElementById('all-q-btn').addEventListener('click',loadAllPerf);
+  // 전체실적 7일 이동 버튼
+  function apMove(days){
+    var s=document.getElementById('fs'),e=document.getElementById('fe2');
+    var sd=new Date(s.value),ed=new Date(e.value);
+    sd.setDate(sd.getDate()+days); ed.setDate(ed.getDate()+days);
+    s.value=sd.toISOString().slice(0,10);
+    e.value=ed.toISOString().slice(0,10);
+    loadAllPerf();
+  }
+  var apPrev=document.getElementById('ap-prev-btn');
+  var apNext=document.getElementById('ap-next-btn');
+  var apLast=document.getElementById('ap-lastmonth-btn');
+  var apThis=document.getElementById('ap-thismonth-btn');
+  if(apPrev) apPrev.addEventListener('click',function(){apMove(-7);});
+  if(apNext) apNext.addEventListener('click',function(){apMove(7);});
+  if(apLast) apLast.addEventListener('click',function(){
+    var now=new Date();
+    var y=now.getMonth()===0?now.getFullYear()-1:now.getFullYear();
+    var m=now.getMonth()===0?12:now.getMonth();
+    var last=new Date(y,m,0).getDate();
+    document.getElementById('fs').value=y+'-'+String(m).padStart(2,'0')+'-01';
+    document.getElementById('fe2').value=y+'-'+String(m).padStart(2,'0')+'-'+String(last).padStart(2,'0');
+    loadAllPerf();
+  });
+  if(apThis) apThis.addEventListener('click',function(){
+    var now=new Date();
+    var y=now.getFullYear(), m=now.getMonth()+1;
+    var last=new Date(y,m,0).getDate();
+    document.getElementById('fs').value=y+'-'+String(m).padStart(2,'0')+'-01';
+    document.getElementById('fe2').value=y+'-'+String(m).padStart(2,'0')+'-'+String(last).padStart(2,'0');
+    loadAllPerf();
+  });
   // 대시보드 날짜 버튼
   var dqb=document.getElementById('dash-q-btn');
   var dpb=document.getElementById('dash-prev-btn');
